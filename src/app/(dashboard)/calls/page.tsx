@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Phone, Search, Bell, MoreVertical, Clock, CheckCircle, XCircle, Mic, MicOff, Calendar, FileText } from 'lucide-react';
+import { useSetSidebarAboveUserCard } from '@/components/dashboard-shell';
 
 interface CallLog {
   id: string;
@@ -21,16 +20,7 @@ interface CallLog {
   outcome?: 'booked' | 'callback' | 'info' | 'not_interested' | null;
 }
 
-const navItems = [
-  { icon: '📊', label: 'Dashboard', href: '/' },
-  { icon: '🎯', label: 'CRM', href: '/crm' },
-  { icon: '👷', label: 'Team', href: '/team' },
-  { icon: '📞', label: 'Calls', href: '/calls' },
-  { icon: '📍', label: 'Map', href: '/map' },
-  { icon: '👥', label: 'Customers', href: '/customers' },
-  { icon: '📄', label: 'Invoices', href: '/invoices' },
-  { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
+
 
 const statusColors = {
   completed: 'bg-green-100 text-green-700 border-green-200',
@@ -70,7 +60,7 @@ const buildServiceType = (call: CallLog) => {
 };
 
 export default function CallsPage() {
-  const pathname = usePathname();
+  const setSidebarAboveUserCard = useSetSidebarAboveUserCard();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [selectedCall, setSelectedCall] = useState<CallLog | null>(null);
@@ -79,6 +69,23 @@ export default function CallsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useLayoutEffect(() => {
+    setSidebarAboveUserCard(
+      <div className="bg-white/10 rounded-xl p-4 border border-white/10">
+        <div className="flex items-center gap-3 mb-3">
+          <div
+            className={`w-3 h-3 rounded-full ${aiAssistantEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}
+          />
+          <span className="text-sm font-medium">AI Assistant</span>
+        </div>
+        <p className="text-xs text-slate-300">
+          {aiAssistantEnabled ? 'Ready for incoming calls' : 'Paused'}
+        </p>
+      </div>
+    );
+    return () => setSidebarAboveUserCard(null);
+  }, [aiAssistantEnabled, setSidebarAboveUserCard]);
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -233,60 +240,8 @@ export default function CallsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
-        <div className="p-6">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <span className="text-lg font-bold">P</span>
-            </div>
-            <span className="text-lg font-bold">PlumberOS</span>
-          </Link>
-        </div>
-
-        <nav className="flex-1 px-4 space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                pathname === item.href
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-gray-800">
-          <div className="bg-gray-800 rounded-xl p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-3 h-3 rounded-full ${aiAssistantEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
-              <span className="text-sm font-medium">AI Assistant</span>
-            </div>
-            <p className="text-xs text-gray-400">
-              {aiAssistantEnabled ? 'Ready for incoming calls' : 'Paused'}
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
-              <span className="text-sm font-medium">AK</span>
-            </div>
-            <div>
-              <p className="text-sm font-medium">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Calls</h1>

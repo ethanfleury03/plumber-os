@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Search, Bell, MoreHorizontal, Calendar, User, FileText } from 'lucide-react';
 
 interface Invoice {
@@ -31,18 +29,7 @@ const statusLabels: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-const navItems = [
-  { icon: '📊', label: 'Dashboard', href: '/' },
-  { icon: '🎯', label: 'CRM', href: '/crm' },
-  { icon: '💼', label: 'Jobs', href: '/jobs' },
-  { icon: '👥', label: 'Customers', href: '/customers' },
-  { icon: '📄', label: 'Invoices', href: '/invoices' },
-  { icon: '📅', label: 'Calendar', href: '/calendar' },
-  { icon: '📍', label: 'Map', href: '/map' },
-  { icon: '👨🔧', label: 'Team', href: '/team' },
-  { icon: '📞', label: 'Calls', href: '/calls' },
-  { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
+
 
 export default function InvoicesPage() {
   const [activeTab, setActiveTab] = useState('all');
@@ -50,8 +37,6 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const pathname = usePathname();
-
   const tabs = [
     { id: 'all', label: 'All' },
     { id: 'pending', label: 'Pending' },
@@ -113,50 +98,8 @@ export default function InvoicesPage() {
     new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
-        <div className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-              <span className="text-lg font-bold">P</span>
-            </div>
-            <span className="text-lg font-semibold">PlumberOS</span>
-          </div>
-        </div>
-        
-        <nav className="flex-1 px-4">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors ${
-                pathname === item.href
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span>{item.icon}</span>
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-        
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
-              <span className="text-sm">AK</span>
-            </div>
-            <div>
-              <p className="font-medium text-sm">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1">
+    <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
+      <main className="flex-1 min-h-0 overflow-auto">
         <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Invoices</h1>

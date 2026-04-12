@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Calendar, X } from 'lucide-react';
 import { getStatusStyle, leadStatusLabels, sourceLabels } from '@/lib/statusColors';
 
@@ -36,14 +34,7 @@ interface LeadStats {
   converted: number;
 }
 
-const navItems = [
-  { icon: '📊', label: 'Dashboard', href: '/' },
-  { icon: '🎯', label: 'CRM', href: '/crm' },
-  { icon: '💼', label: 'Jobs', href: '/jobs' },
-  { icon: '👥', label: 'Customers', href: '/customers' },
-  { icon: '📄', label: 'Invoices', href: '/invoices' },
-  { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
+
 
 const statusColors: Record<string, string> = {
   new: 'bg-blue-100 text-blue-700',
@@ -69,7 +60,6 @@ const sources = ['website', 'phone', 'thumbtack', 'angi', 'google', 'referral'];
 const serviceTypes = ['Drain Cleaning', 'Water Heater', 'Leak Repair', 'Pipe Installation', 'Toilet Repair', 'Faucet Repair', 'Sewer Line', 'Other'];
 
 export default function LeadsPage() {
-  const pathname = usePathname();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<LeadStats>({ total: 0, new: 0, working: 0, converted: 0 });
   const [loading, setLoading] = useState(true);
@@ -215,52 +205,8 @@ export default function LeadsPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
-        <div className="p-6">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                <span className="text-lg font-bold">P</span>
-              </div>
-              <span className="text-lg font-semibold">PlumberOS</span>
-            </Link>
-          </div>
-        </div>
-        
-        <nav className="flex-1 px-4">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors ${
-                pathname === item.href
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span>{item.icon}</span>
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-        
-        <div className="p-4 border-t border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
-              <span className="text-sm">AK</span>
-            </div>
-            <div>
-              <p className="font-medium text-sm">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1">
+    <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
+      <main className="flex-1 min-h-0 overflow-auto">
         <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Leads</h1>

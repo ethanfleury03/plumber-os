@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Search, Bell, Plus, TrendingUp } from 'lucide-react';
 
 interface Lead {
@@ -27,18 +26,7 @@ interface Invoice {
   amount?: number | null;
 }
 
-const navItems = [
-  { icon: '📊', label: 'Dashboard', href: '/' },
-  { icon: '🎯', label: 'CRM', href: '/crm' },
-  { icon: '💼', label: 'Jobs', href: '/jobs' },
-  { icon: '👥', label: 'Customers', href: '/customers' },
-  { icon: '📄', label: 'Invoices', href: '/invoices' },
-  { icon: '📅', label: 'Calendar', href: '/calendar' },
-  { icon: '📍', label: 'Map', href: '/map' },
-  { icon: '👨‍🔧', label: 'Team', href: '/team' },
-  { icon: '📞', label: 'Calls', href: '/calls' },
-  { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
+
 
 const leadStatusLabels: Record<string, string> = {
   new: 'New',
@@ -53,7 +41,6 @@ const leadStatusLabels: Record<string, string> = {
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 
 export default function Dashboard() {
-  const pathname = usePathname();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -137,48 +124,8 @@ export default function Dashboard() {
   }, [invoices, jobs, leads]);
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
-      <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
-        <div className="p-5 relative z-10">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="sidebar-logo w-10 h-10 rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-lg font-bold">P</span>
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-              PlumberOS
-            </span>
-          </Link>
-        </div>
-
-        <nav className="flex-1 px-3 relative z-10">
-          {navItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`sidebar-item w-full flex items-center gap-3 px-4 py-3 mb-1 text-sm ${
-                pathname === item.href ? 'active text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <span className="text-lg">{item.icon}</span>
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-gray-700/50 relative z-10">
-          <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold shadow-lg">
-              AK
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col min-w-0">
+    <div className="flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
         <header className="header px-6 py-4 flex items-center justify-between flex-shrink-0">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Good morning, Akshay</h1>

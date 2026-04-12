@@ -1,22 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Bell, User, Building, CreditCard, Palette, Save, Loader2, Check } from 'lucide-react';
 
-const navItems = [
-  { icon: '📊', label: 'Dashboard', href: '/' },
-  { icon: '🎯', label: 'CRM', href: '/crm' },
-  { icon: '💼', label: 'Jobs', href: '/jobs' },
-  { icon: '👥', label: 'Customers', href: '/customers' },
-  { icon: '📄', label: 'Invoices', href: '/invoices' },
-  { icon: '📅', label: 'Calendar', href: '/calendar' },
-  { icon: '📍', label: 'Map', href: '/map' },
-  { icon: '👨🔧', label: 'Team', href: '/team' },
-  { icon: '📞', label: 'Calls', href: '/calls' },
-  { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
+
 
 const settingsTabs = [
   { id: 'profile', label: 'Profile', icon: User },
@@ -27,7 +14,6 @@ const settingsTabs = [
 ];
 
 export default function SettingsPage() {
-  const pathname = usePathname();
   const [activeTab, setActiveTab] = useState('profile');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -66,40 +52,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      <aside className="w-56 bg-gray-900 text-white flex flex-col flex-shrink-0">
-        <div className="p-4">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-              <span className="text-sm font-bold">P</span>
-            </div>
-            <span className="text-lg font-semibold">PlumberOS</span>
-          </Link>
-        </div>
-        <nav className="flex-1 px-3">
-          {navItems.map(item => (
-            <Link 
-              key={item.label} 
-              href={item.href} 
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 text-sm ${pathname === item.href ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-            >
-              <span>{item.icon}</span>
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-        <div className="p-3 border-t border-gray-800">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center text-xs">AK</div>
-            <div>
-              <p className="text-sm font-medium">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 bg-gray-100">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
