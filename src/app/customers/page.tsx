@@ -152,9 +152,9 @@ export default function CustomersPage() {
   };
 
   // Format price
-  const formatPrice = (price: any) => {
+  const formatPrice = (price: unknown) => {
     if (!price) return '-';
-    const num = typeof price === 'string' ? parseFloat(price) : price;
+    const num = typeof price === 'string' ? parseFloat(price) : Number(price);
     return `$${num.toLocaleString()}`;
   };
 

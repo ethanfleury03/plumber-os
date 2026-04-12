@@ -1,21 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Phone, Search, Bell, Filter, Play, Pause, MoreVertical, User, Clock, CheckCircle, XCircle, Mic, MicOff, Volume2, Calendar, FileText } from 'lucide-react';
+import { Phone, Search, Bell, MoreVertical, Clock, CheckCircle, XCircle, Mic, MicOff, Calendar, FileText } from 'lucide-react';
 
 interface CallLog {
   id: string;
-  customerName: string;
-  phoneNumber: string;
-  duration: string;
-  timestamp: string;
+  customer_id?: string | null;
+  lead_id?: string | null;
+  job_id?: string | null;
+  customer_name?: string | null;
+  phone_number: string;
+  duration_seconds?: number | null;
+  created_at: string;
   status: 'completed' | 'missed' | 'voicemail';
   recording?: boolean;
-  transcript?: string;
-  aiSummary?: string;
-  outcome?: 'booked' | 'callback' | 'info' | 'not_interested';
+  transcript?: string | null;
+  ai_summary?: string | null;
+  outcome?: 'booked' | 'callback' | 'info' | 'not_interested' | null;
 }
 
 const navItems = [
@@ -27,16 +30,6 @@ const navItems = [
   { icon: '👥', label: 'Customers', href: '/customers' },
   { icon: '📄', label: 'Invoices', href: '/invoices' },
   { icon: '⚙️', label: 'Settings', href: '/settings' },
-];
-
-// Sample call data
-const sampleCalls: CallLog[] = [
-  { id: '1', customerName: 'Robert S.', phoneNumber: '(555) 123-4567', duration: '4:32', timestamp: 'Today, 2:30 PM', status: 'completed', recording: true, transcript: 'Hi, I have a leak in my kitchen sink...', aiSummary: 'Customer reported leak. Scheduled for tomorrow 10AM.', outcome: 'booked' },
-  { id: '2', customerName: 'Jennifer L.', phoneNumber: '(555) 456-7890', duration: '1:15', timestamp: 'Today, 11:45 AM', status: 'missed', recording: false },
-  { id: '3', customerName: 'Mike T.', phoneNumber: '(555) 345-6789', duration: '0:45', timestamp: 'Today, 10:20 AM', status: 'voicemail', transcript: 'Please call me back about the water heater...', aiSummary: 'Voicemail about water heater issue.' },
-  { id: '4', customerName: 'Sarah M.', phoneNumber: '(555) 234-5678', duration: '6:12', timestamp: 'Yesterday, 4:15 PM', status: 'completed', recording: true, transcript: 'Looking for annual maintenance...', aiSummary: 'Annual maintenance check. Scheduled for next week.', outcome: 'booked' },
-  { id: '5', customerName: 'Tom H.', phoneNumber: '(555) 789-0123', duration: '2:08', timestamp: 'Yesterday, 2:00 PM', status: 'completed', recording: true, transcript: 'Just wanted some info on pricing...', aiSummary: 'Price inquiry. Sent quote via email.', outcome: 'callback' },
-  { id: '6', customerName: 'Lisa K.', phoneNumber: '(555) 678-9012', duration: '0:30', timestamp: 'Yesterday, 9:30 AM', status: 'missed', recording: false },
 ];
 
 const statusColors = {
@@ -52,27 +45,195 @@ const outcomeColors = {
   not_interested: 'bg-red-100 text-red-700',
 };
 
+const formatDuration = (durationSeconds?: number | null) => {
+  const totalSeconds = Number(durationSeconds || 0);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
+const formatTimestamp = (createdAt: string) =>
+  new Date(createdAt).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+const buildServiceType = (call: CallLog) => {
+  const sourceText = call.ai_summary || call.transcript || '';
+  if (!sourceText) {
+    return 'Phone Service Request';
+  }
+
+  return sourceText.length > 60 ? `${sourceText.slice(0, 57)}...` : sourceText;
+};
+
 export default function CallsPage() {
   const pathname = usePathname();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [selectedCall, setSelectedCall] = useState<CallLog | null>(null);
   const [aiAssistantEnabled, setAiAssistantEnabled] = useState(true);
+  const [calls, setCalls] = useState<CallLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const filteredCalls = sampleCalls.filter(call => {
-    const matchesSearch = call.customerName.toLowerCase().includes(search.toLowerCase()) ||
-      call.phoneNumber.includes(search);
+  useEffect(() => {
+    const fetchCalls = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch('/api/calls?limit=200');
+        const data = await res.json();
+
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+
+        setCalls(data.calls || []);
+      } catch {
+        setError('Failed to fetch calls');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCalls();
+  }, []);
+
+  const filteredCalls = calls.filter((call) => {
+    const matchesSearch =
+      (call.customer_name || '').toLowerCase().includes(search.toLowerCase()) ||
+      call.phone_number.includes(search);
     const matchesFilter = filter === 'all' || call.status === filter;
     return matchesSearch && matchesFilter;
   });
 
-  const totalCalls = sampleCalls.length;
-  const completedCalls = sampleCalls.filter(c => c.status === 'completed').length;
-  const bookedCalls = sampleCalls.filter(c => c.outcome === 'booked').length;
+  const stats = useMemo(
+    () => ({
+      totalCalls: calls.length,
+      completedCalls: calls.filter((call) => call.status === 'completed').length,
+      bookedCalls: calls.filter((call) => call.outcome === 'booked').length,
+      transcribedCalls: calls.filter((call) => !!call.ai_summary || !!call.transcript).length,
+    }),
+    [calls]
+  );
+
+  const updateCall = (id: string, updates: Partial<CallLog>) => {
+    setCalls((current) => current.map((call) => (call.id === id ? { ...call, ...updates } : call)));
+    setSelectedCall((current) => (current && current.id === id ? { ...current, ...updates } : current));
+  };
+
+  const handleCreateLead = async () => {
+    if (!selectedCall) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: selectedCall.customer_id,
+          customer_name: selectedCall.customer_name || 'Phone Caller',
+          customer_phone: selectedCall.phone_number,
+          issue: buildServiceType(selectedCall),
+          description: selectedCall.transcript || selectedCall.ai_summary || 'Created from call log',
+          source: 'phone',
+          status: 'new',
+        }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+
+      await fetch('/api/calls', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedCall.id, lead_id: data.lead.id, customer_id: data.lead.customer_id }),
+      });
+
+      updateCall(selectedCall.id, { lead_id: data.lead.id, customer_id: data.lead.customer_id });
+    } catch {
+      setError('Failed to create lead');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleScheduleJob = async () => {
+    if (!selectedCall) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      let customerId = selectedCall.customer_id || null;
+
+      if (!customerId) {
+        const customerRes = await fetch('/api/customers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: selectedCall.customer_name || 'Phone Caller',
+            phone: selectedCall.phone_number,
+            notes: selectedCall.ai_summary || selectedCall.transcript || 'Created from call log',
+          }),
+        });
+        const customerData = await customerRes.json();
+
+        if (customerData.error) {
+          setError(customerData.error);
+          return;
+        }
+
+        customerId = customerData.customer.id;
+      }
+
+      const jobRes = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: customerId,
+          type: buildServiceType(selectedCall),
+          description: selectedCall.transcript || selectedCall.ai_summary || 'Scheduled from call log',
+          status: 'scheduled',
+        }),
+      });
+      const jobData = await jobRes.json();
+
+      if (jobData.error) {
+        setError(jobData.error);
+        return;
+      }
+
+      await fetch('/api/calls', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedCall.id,
+          customer_id: customerId,
+          job_id: jobData.job.id,
+          outcome: 'booked',
+        }),
+      });
+
+      updateCall(selectedCall.id, { customer_id: customerId, job_id: jobData.job.id, outcome: 'booked' });
+    } catch {
+      setError('Failed to schedule job');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
       <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
         <div className="p-6">
           <Link href="/" className="flex items-center gap-3">
@@ -82,15 +243,15 @@ export default function CallsPage() {
             <span className="text-lg font-bold">PlumberOS</span>
           </Link>
         </div>
-        
+
         <nav className="flex-1 px-4 space-y-1">
-          {navItems.map(item => (
-            <Link 
-              key={item.label} 
+          {navItems.map((item) => (
+            <Link
+              key={item.label}
               href={item.href}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                pathname === item.href 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' 
+                pathname === item.href
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
                   : 'text-gray-400 hover:bg-gray-800 hover:text-white'
               }`}
             >
@@ -100,7 +261,6 @@ export default function CallsPage() {
           ))}
         </nav>
 
-        {/* AI Assistant Status */}
         <div className="p-4 border-t border-gray-800">
           <div className="bg-gray-800 rounded-xl p-4">
             <div className="flex items-center gap-3 mb-3">
@@ -108,7 +268,7 @@ export default function CallsPage() {
               <span className="text-sm font-medium">AI Assistant</span>
             </div>
             <p className="text-xs text-gray-400">
-              {aiAssistantEnabled ? 'Listening for incoming calls...' : 'Paused'}
+              {aiAssistantEnabled ? 'Ready for incoming calls' : 'Paused'}
             </p>
           </div>
         </div>
@@ -126,23 +286,21 @@ export default function CallsPage() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">📞 Calls</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Calls</h1>
             <p className="text-gray-500 text-sm">AI-powered call management</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Search calls..." 
+              <input
+                type="text"
+                placeholder="Search calls..."
                 value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" 
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm w-64 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
               />
             </div>
             <button className="p-2 hover:bg-gray-100 rounded-xl relative">
@@ -152,7 +310,6 @@ export default function CallsPage() {
           </div>
         </header>
 
-        {/* Stats */}
         <div className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="grid grid-cols-4 gap-6">
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
@@ -161,7 +318,7 @@ export default function CallsPage() {
                   <Phone className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-blue-700">{totalCalls}</p>
+                  <p className="text-2xl font-bold text-blue-700">{loading ? '...' : stats.totalCalls}</p>
                   <p className="text-sm text-blue-600">Total Calls</p>
                 </div>
               </div>
@@ -172,7 +329,7 @@ export default function CallsPage() {
                   <CheckCircle className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-green-700">{completedCalls}</p>
+                  <p className="text-2xl font-bold text-green-700">{loading ? '...' : stats.completedCalls}</p>
                   <p className="text-sm text-green-600">Completed</p>
                 </div>
               </div>
@@ -183,7 +340,7 @@ export default function CallsPage() {
                   <Calendar className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-emerald-700">{bookedCalls}</p>
+                  <p className="text-2xl font-bold text-emerald-700">{loading ? '...' : stats.bookedCalls}</p>
                   <p className="text-sm text-emerald-600">Jobs Booked</p>
                 </div>
               </div>
@@ -194,7 +351,9 @@ export default function CallsPage() {
                   <Mic className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-purple-700">100%</p>
+                  <p className="text-2xl font-bold text-purple-700">
+                    {loading || stats.totalCalls === 0 ? '...' : `${Math.round((stats.transcribedCalls / stats.totalCalls) * 100)}%`}
+                  </p>
                   <p className="text-sm text-purple-600">AI Transcribed</p>
                 </div>
               </div>
@@ -202,13 +361,12 @@ export default function CallsPage() {
           </div>
         </div>
 
-        {/* Filters & Actions */}
         <div className="bg-white border-b border-gray-200 px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <select 
-              value={filter} 
-              onChange={e => setFilter(e.target.value)}
-              className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Calls</option>
               <option value="completed">Completed</option>
@@ -216,23 +374,26 @@ export default function CallsPage() {
               <option value="voicemail">Voicemails</option>
             </select>
           </div>
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setAiAssistantEnabled(!aiAssistantEnabled)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                aiAssistantEnabled 
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {aiAssistantEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-              {aiAssistantEnabled ? 'AI Active' : 'AI Paused'}
-            </button>
-          </div>
+          <button
+            onClick={() => setAiAssistantEnabled((current) => !current)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              aiAssistantEnabled
+                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {aiAssistantEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            {aiAssistantEnabled ? 'AI Active' : 'AI Paused'}
+          </button>
         </div>
 
-        {/* Calls List */}
         <div className="flex-1 overflow-auto p-8">
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl mb-6 text-sm">
+              {error}
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -248,45 +409,57 @@ export default function CallsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredCalls.map(call => (
-                  <tr 
-                    key={call.id} 
+                {loading ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                      Loading calls...
+                    </td>
+                  </tr>
+                ) : filteredCalls.map((call) => (
+                  <tr
+                    key={call.id}
                     className="hover:bg-gray-50 cursor-pointer transition-colors"
                     onClick={() => setSelectedCall(call)}
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-medium">
-                          {call.customerName.charAt(0)}
+                          {(call.customer_name || 'C').charAt(0)}
                         </div>
-                        <span className="font-medium text-gray-900">{call.customerName}</span>
+                        <span className="font-medium text-gray-900">{call.customer_name || 'Unknown Caller'}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{call.phoneNumber}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{call.phone_number}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       <div className="flex items-center gap-1">
                         <Clock className="w-4 h-4 text-gray-400" />
-                        {call.duration}
+                        {formatDuration(call.duration_seconds)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{call.timestamp}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{formatTimestamp(call.created_at)}</td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColors[call.status]}`}>
-                        {call.status === 'completed' ? '✅ Completed' : call.status === 'missed' ? '❌ Missed' : '📧 Voicemail'}
+                        {call.status === 'completed' ? 'Completed' : call.status === 'missed' ? 'Missed' : 'Voicemail'}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       {call.outcome ? (
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${outcomeColors[call.outcome]}`}>
-                          {call.outcome === 'booked' ? '📅 Booked' : call.outcome === 'callback' ? '📞 Callback' : call.outcome === 'info' ? 'ℹ️ Info' : '👋 Not Interested'}
+                          {call.outcome === 'booked'
+                            ? 'Booked'
+                            : call.outcome === 'callback'
+                              ? 'Callback'
+                              : call.outcome === 'info'
+                                ? 'Info'
+                                : 'Not Interested'}
                         </span>
                       ) : (
-                        <span className="text-gray-400 text-sm">—</span>
+                        <span className="text-gray-400 text-sm">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="max-w-xs">
-                        <p className="text-sm text-gray-600 truncate">{call.aiSummary || 'No summary'}</p>
+                        <p className="text-sm text-gray-600 truncate">{call.ai_summary || 'No summary'}</p>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -298,8 +471,8 @@ export default function CallsPage() {
                 ))}
               </tbody>
             </table>
-            
-            {filteredCalls.length === 0 && (
+
+            {!loading && filteredCalls.length === 0 && (
               <div className="text-center py-12">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Phone className="w-8 h-8 text-gray-400" />
@@ -311,7 +484,6 @@ export default function CallsPage() {
         </div>
       </main>
 
-      {/* Call Detail Sidebar */}
       {selectedCall && (
         <div className="w-96 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
           <div className="p-6 border-b border-gray-200">
@@ -323,26 +495,25 @@ export default function CallsPage() {
             </div>
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
-                {selectedCall.customerName.charAt(0)}
+                {(selectedCall.customer_name || 'C').charAt(0)}
               </div>
               <div>
-                <p className="font-bold text-gray-900">{selectedCall.customerName}</p>
-                <p className="text-sm text-gray-500">{selectedCall.phoneNumber}</p>
+                <p className="font-bold text-gray-900">{selectedCall.customer_name || 'Unknown Caller'}</p>
+                <p className="text-sm text-gray-500">{selectedCall.phone_number}</p>
               </div>
             </div>
           </div>
 
           <div className="flex-1 overflow-auto p-6">
-            {/* Call Info */}
             <div className="bg-gray-50 rounded-xl p-4 mb-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Duration</p>
-                  <p className="font-semibold text-gray-900">{selectedCall.duration}</p>
+                  <p className="font-semibold text-gray-900">{formatDuration(selectedCall.duration_seconds)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Timestamp</p>
-                  <p className="font-semibold text-gray-900">{selectedCall.timestamp}</p>
+                  <p className="font-semibold text-gray-900">{formatTimestamp(selectedCall.created_at)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Status</p>
@@ -357,22 +528,20 @@ export default function CallsPage() {
               </div>
             </div>
 
-            {/* AI Summary */}
             <div className="mb-6">
               <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <span className="w-6 h-6 bg-purple-100 rounded-lg flex items-center justify-center">🤖</span>
+                <span className="w-6 h-6 bg-purple-100 rounded-lg flex items-center justify-center">AI</span>
                 AI Summary
               </h4>
               <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
-                <p className="text-sm text-purple-900">{selectedCall.aiSummary || 'No AI summary available'}</p>
+                <p className="text-sm text-purple-900">{selectedCall.ai_summary || 'No AI summary available'}</p>
               </div>
             </div>
 
-            {/* Transcript */}
             {selectedCall.transcript && (
               <div className="mb-6">
                 <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-blue-100 rounded-lg flex items-center justify-center">📝</span>
+                  <span className="w-6 h-6 bg-blue-100 rounded-lg flex items-center justify-center">T</span>
                   Transcript
                 </h4>
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
@@ -381,15 +550,22 @@ export default function CallsPage() {
               </div>
             )}
 
-            {/* Actions */}
             <div className="space-y-3">
-              <button className="w-full flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-3 rounded-xl font-medium hover:bg-blue-600 transition-colors">
+              <button
+                onClick={handleScheduleJob}
+                disabled={saving}
+                className="w-full flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-3 rounded-xl font-medium hover:bg-blue-600 transition-colors disabled:opacity-50"
+              >
                 <Calendar className="w-4 h-4" />
-                Schedule Job
+                {saving ? 'Working...' : 'Schedule Job'}
               </button>
-              <button className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-700 px-4 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors">
+              <button
+                onClick={handleCreateLead}
+                disabled={saving}
+                className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-700 px-4 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
                 <FileText className="w-4 h-4" />
-                Create Lead
+                {saving ? 'Working...' : 'Create Lead'}
               </button>
             </div>
           </div>

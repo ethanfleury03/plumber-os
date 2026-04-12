@@ -8,6 +8,8 @@ import { Search, Bell, Plus, X, GripVertical, Pencil, Trash2, Check, Loader2 } f
 interface Card {
   id: string;
   type: 'lead' | 'job';
+  companyId?: string;
+  customerId?: string;
   customerName: string;
   customerPhone: string;
   location: string;
@@ -50,6 +52,22 @@ interface Bucket {
   title: string;
   color: string;
   position: number;
+}
+
+interface ApiLead {
+  id: string;
+  company_id?: string;
+  customer_id?: string;
+  status: string;
+  customer_name?: string;
+  customer_phone?: string;
+  location?: string;
+  issue: string;
+  created_at?: string;
+  source?: string;
+  plumber_name?: string;
+  priority?: number;
+  description?: string;
 }
 
 const navItems = [
@@ -150,8 +168,11 @@ export default function CrmPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          company_id: selectedCard.companyId,
+          customer_id: selectedCard.customerId,
           lead_id: selectedCard.leadId,
           customer_name: selectedCard.customerName,
+          customer_phone: selectedCard.customerPhone,
           service_type: selectedCard.service,
           amount: selectedCard.price || 0,
           status: 'pending',
@@ -185,10 +206,12 @@ export default function CrmPage() {
       const res = await fetch('/api/leads');
       const data = await res.json();
       if (data.leads) {
-        const mappedCards: Card[] = data.leads.map((lead: any) => ({
+        const mappedCards: Card[] = data.leads.map((lead: ApiLead) => ({
           id: lead.id,
           leadId: lead.id,
           type: ['booked', 'in_progress', 'completed'].includes(lead.status) ? 'job' : 'lead',
+          companyId: lead.company_id,
+          customerId: lead.customer_id,
           customerName: lead.customer_name || 'Unknown',
           customerPhone: lead.customer_phone || '',
           location: lead.location || '',

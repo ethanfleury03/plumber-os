@@ -17,7 +17,7 @@ interface Lead {
   issue: string;
   description?: string;
   location?: string;
-  ai_qualification?: any;
+  ai_qualification?: unknown;
   ai_score?: number;
   created_at: string;
   updated_at: string;
@@ -328,8 +328,12 @@ export default function LeadsPage() {
               >
                 <option value="all">All Status</option>
                 <option value="new">New</option>
-                <option value="working">In Progress</option>
-                <option value="converted">Completed</option>
+                <option value="qualified">Qualified</option>
+                <option value="quoted">Quoted</option>
+                <option value="booked">Booked</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="lost">Lost</option>
               </select>
             </div>
             

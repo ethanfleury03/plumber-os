@@ -1,6 +1,9 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Unknown error';
+
 // GET - Fetch leads
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -63,9 +66,9 @@ export async function GET(request: Request) {
     const leads = await query;
 
     return NextResponse.json({ leads, total });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching leads:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -137,9 +140,9 @@ export async function POST(request: Request) {
     `;
 
     return NextResponse.json({ lead: result[0] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating lead:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -182,9 +185,9 @@ export async function PUT(request: Request) {
 
     // Default response if no recognized fields
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating lead:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -201,8 +204,8 @@ export async function DELETE(request: Request) {
     await sql`DELETE FROM leads WHERE id = ${id}`;
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting lead:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

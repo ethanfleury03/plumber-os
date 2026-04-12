@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Search, Bell, Layers, Filter, Phone, MapPin, Calendar, User, X, Navigation } from 'lucide-react';
 import dynamic from 'next/dynamic';
+
+type LeafletModule = typeof import('leaflet');
 // Dynamic imports for Leaflet (no SSR)
 const MapContainer = dynamic(
   () => import('react-leaflet').then((mod) => mod.MapContainer),
@@ -36,12 +38,20 @@ interface MapLead {
   lng?: number;
 }
 
+interface ApiLead {
+  id: string;
+  customer_name?: string;
+  customer_phone?: string;
+  location?: string;
+  issue?: string;
+  status: string;
+  source: string;
+  created_at: string;
+}
+
 // Custom marker icons by status
-const createIcon = (color: string) => {
-  if (typeof window === 'undefined') return undefined;
-  
-  const L = require('leaflet');
-  return L.divIcon({
+const createIcon = (leaflet: LeafletModule, color: string) => {
+  return leaflet.divIcon({
     className: 'custom-marker',
     html: `<div style="
       background-color: ${color};
@@ -155,6 +165,7 @@ export default function MapPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedLead, setSelectedLead] = useState<MapLead | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [leafletLib, setLeafletLib] = useState<LeafletModule | null>(null);
 
   // Fetch leads and geocode them
   useEffect(() => {
@@ -166,7 +177,7 @@ export default function MapPage() {
         if (data.leads) {
           // Geocode each lead that doesn't have coordinates
           const geocodedLeads = await Promise.all(
-            data.leads.map(async (lead: any) => {
+            data.leads.map(async (lead: ApiLead) => {
               let lat = 40.7128; // Default to NYC
               let lng = -74.0060;
               
@@ -215,14 +226,15 @@ export default function MapPage() {
 
   useEffect(() => {
     setIsClient(true);
-    
-    // Fix for default marker icons
-    const L = require('leaflet');
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+
+    import('leaflet').then((leaflet) => {
+      setLeafletLib(leaflet);
+      delete (leaflet.Icon.Default.prototype as { _getIconUrl?: string })._getIconUrl;
+      leaflet.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
     });
   }, []);
 
@@ -377,7 +389,7 @@ export default function MapPage() {
               <Marker 
                 key={lead.id} 
                 position={[lead.lat!, lead.lng!]}
-                icon={createIcon(statusColors[lead.status] || '#6b7280')}
+                icon={leafletLib ? createIcon(leafletLib, statusColors[lead.status] || '#6b7280') : undefined}
               >
                 <Popup>
                   <div className="min-w-[200px] p-1">

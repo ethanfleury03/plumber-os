@@ -1,6 +1,9 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Unknown error';
+
 // GET - Fetch customers
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -43,9 +46,9 @@ export async function GET(request: Request) {
     const customers = await query;
 
     return NextResponse.json({ customers, total });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching customers:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -84,9 +87,9 @@ export async function POST(request: Request) {
     `;
 
     return NextResponse.json({ customer: result[0] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating customer:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -113,9 +116,9 @@ export async function PUT(request: Request) {
     `;
 
     return NextResponse.json({ customer: result[0] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating customer:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -132,8 +135,8 @@ export async function DELETE(request: Request) {
     await sql`DELETE FROM customers WHERE id = ${id}`;
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting customer:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

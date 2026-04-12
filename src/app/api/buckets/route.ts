@@ -1,17 +1,20 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Unknown error';
+
 // GET - Fetch buckets
 export async function GET() {
   try {
-    let query = sql`
+    const query = sql`
       SELECT * FROM buckets ORDER BY position ASC
     `;
     const buckets = await query;
     return NextResponse.json({ buckets });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching buckets:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -31,9 +34,9 @@ export async function POST(request: Request) {
     `;
 
     return NextResponse.json({ bucket: result[0] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating bucket:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -49,17 +52,18 @@ export async function PUT(request: Request) {
   try {
     const result = await sql`
       UPDATE buckets 
-      SET title = ${updates.title || null},
-          color = ${updates.color || null},
-          position = ${updates.position || null}
+      SET title = COALESCE(${updates.title ?? null}, title),
+          color = COALESCE(${updates.color ?? null}, color),
+          position = COALESCE(${updates.position ?? null}, position),
+          updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
     `;
 
     return NextResponse.json({ bucket: result[0] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating bucket:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -75,8 +79,8 @@ export async function DELETE(request: Request) {
   try {
     await sql`DELETE FROM buckets WHERE id = ${id}`;
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting bucket:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

@@ -1,45 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Bell, MoreHorizontal, Calendar, DollarSign, User, FileText } from 'lucide-react';
+import { Search, Bell, MoreHorizontal, Calendar, User, FileText } from 'lucide-react';
 
 interface Invoice {
   id: string;
   invoice_number: string;
-  customer: { name: string };
-  service_type: string;
-  date: string;
+  customers?: { name?: string; email?: string; phone?: string } | null;
+  service_type?: string | null;
+  issue_date: string;
   amount: number;
-  status: 'pending' | 'paid' | 'overdue';
+  tax?: number | null;
+  total?: number | null;
+  status: 'pending' | 'paid' | 'overdue' | 'cancelled';
 }
-
-const mockInvoices: Invoice[] = [
-  { id: '1', invoice_number: 'INV-0089', customer: { name: 'Sarah M.' }, service_type: 'Water Heater', date: 'Feb 23, 2026', amount: 800, status: 'pending' },
-  { id: '2', invoice_number: 'INV-0088', customer: { name: 'Robert S.' }, service_type: 'Drain Cleaning', date: 'Feb 22, 2026', amount: 350, status: 'pending' },
-  { id: '3', invoice_number: 'INV-0087', customer: { name: 'Mike T.' }, service_type: 'Leak Repair', date: 'Feb 21, 2026', amount: 450, status: 'paid' },
-  { id: '4', invoice_number: 'INV-0086', customer: { name: 'Jennifer L.' }, service_type: 'Pipe Installation', date: 'Feb 20, 2026', amount: 600, status: 'overdue' },
-  { id: '5', invoice_number: 'INV-0085', customer: { name: 'David B.' }, service_type: 'Water Heater', date: 'Feb 19, 2026', amount: 750, status: 'paid' },
-];
-
-const mockStats = {
-  total: 156,
-  pending: { count: 12, amount: 8450 },
-  paid: { count: 144, amount: 45230 },
-  overdue: { count: 3, amount: 1200 }
-};
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   paid: 'bg-green-100 text-green-700',
   overdue: 'bg-red-100 text-red-700',
+  cancelled: 'bg-gray-100 text-gray-700',
 };
 
 const statusLabels: Record<string, string> = {
   pending: 'Pending',
   paid: 'Paid',
   overdue: 'Overdue',
+  cancelled: 'Cancelled',
 };
 
 const navItems = [
@@ -58,6 +47,9 @@ const navItems = [
 export default function InvoicesPage() {
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const pathname = usePathname();
 
   const tabs = [
@@ -67,13 +59,58 @@ export default function InvoicesPage() {
     { id: 'overdue', label: 'Overdue' },
   ];
 
-  const filteredInvoices = mockInvoices.filter(inv => {
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch('/api/invoices?limit=200');
+        const data = await res.json();
+
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+
+        setInvoices(data.invoices || []);
+      } catch {
+        setError('Failed to fetch invoices');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInvoices();
+  }, []);
+
+  const filteredInvoices = invoices.filter(inv => {
     const matchesTab = activeTab === 'all' || inv.status === activeTab;
-    const matchesSearch = inv.customer.name.toLowerCase().includes(search.toLowerCase()) ||
+    const customerName = inv.customers?.name || '';
+    const matchesSearch = customerName.toLowerCase().includes(search.toLowerCase()) ||
                          inv.invoice_number.toLowerCase().includes(search.toLowerCase()) ||
-                         inv.service_type.toLowerCase().includes(search.toLowerCase());
+                         (inv.service_type || '').toLowerCase().includes(search.toLowerCase());
     return matchesTab && matchesSearch;
   });
+
+  const stats = useMemo(() => {
+    const sumByStatus = (status: Invoice['status']) =>
+      invoices
+        .filter((invoice) => invoice.status === status)
+        .reduce((sum, invoice) => sum + Number(invoice.total ?? invoice.amount ?? 0), 0);
+
+    const countByStatus = (status: Invoice['status']) =>
+      invoices.filter((invoice) => invoice.status === status).length;
+
+    return {
+      total: invoices.length,
+      pending: { count: countByStatus('pending'), amount: sumByStatus('pending') },
+      paid: { count: countByStatus('paid'), amount: sumByStatus('paid') },
+      overdue: { count: countByStatus('overdue'), amount: sumByStatus('overdue') },
+    };
+  }, [invoices]);
+
+  const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
+  const formatDate = (value: string) =>
+    new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -150,24 +187,30 @@ export default function InvoicesPage() {
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
               <p className="text-gray-500 text-sm">Total Invoices</p>
-              <p className="text-2xl font-bold text-gray-900">{mockStats.total}</p>
+              <p className="text-2xl font-bold text-gray-900">{loading ? '...' : stats.total}</p>
             </div>
             <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
               <p className="text-gray-500 text-sm">Pending</p>
-              <p className="text-2xl font-bold text-yellow-600">${mockStats.pending.amount.toLocaleString()}</p>
-              <p className="text-xs text-gray-500">{mockStats.pending.count} invoices</p>
+              <p className="text-2xl font-bold text-yellow-600">{loading ? '...' : formatCurrency(stats.pending.amount)}</p>
+              <p className="text-xs text-gray-500">{loading ? '...' : stats.pending.count} invoices</p>
             </div>
             <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
               <p className="text-gray-500 text-sm">Paid</p>
-              <p className="text-2xl font-bold text-green-600">${mockStats.paid.amount.toLocaleString()}</p>
-              <p className="text-xs text-gray-500">{mockStats.paid.count} invoices</p>
+              <p className="text-2xl font-bold text-green-600">{loading ? '...' : formatCurrency(stats.paid.amount)}</p>
+              <p className="text-xs text-gray-500">{loading ? '...' : stats.paid.count} invoices</p>
             </div>
             <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
               <p className="text-gray-500 text-sm">Overdue</p>
-              <p className="text-2xl font-bold text-red-600">${mockStats.overdue.amount.toLocaleString()}</p>
-              <p className="text-xs text-gray-500">{mockStats.overdue.count} invoices</p>
+              <p className="text-2xl font-bold text-red-600">{loading ? '...' : formatCurrency(stats.overdue.amount)}</p>
+              <p className="text-xs text-gray-500">{loading ? '...' : stats.overdue.count} invoices</p>
             </div>
           </div>
+
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg mb-4 text-sm">
+              {error}
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="bg-white rounded-xl p-1 border border-gray-200 mb-6 inline-flex">
@@ -188,6 +231,12 @@ export default function InvoicesPage() {
 
           {/* Invoices List */}
           <div className="space-y-4">
+            {loading && (
+              <div className="bg-white rounded-xl p-8 border border-gray-100 shadow-sm text-center text-gray-500">
+                Loading invoices...
+              </div>
+            )}
+
             {filteredInvoices.map((inv) => (
               <div key={inv.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between">
@@ -200,7 +249,7 @@ export default function InvoicesPage() {
                       <h3 className="font-semibold text-gray-900">{inv.invoice_number}</h3>
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <User className="w-3 h-3" />
-                        {inv.customer.name}
+                        {inv.customers?.name || 'Unknown customer'}
                       </div>
                     </div>
                   </div>
@@ -208,7 +257,7 @@ export default function InvoicesPage() {
                   {/* Service Type */}
                   <div className="text-center px-4">
                     <p className="text-sm text-gray-500">Service</p>
-                    <p className="font-medium text-gray-900">{inv.service_type}</p>
+                    <p className="font-medium text-gray-900">{inv.service_type || 'General Service'}</p>
                   </div>
 
                   {/* Date */}
@@ -216,7 +265,7 @@ export default function InvoicesPage() {
                     <p className="text-sm text-gray-500">Date</p>
                     <div className="flex items-center gap-1 justify-center">
                       <Calendar className="w-3 h-3 text-gray-400" />
-                      <p className="font-medium text-gray-900">{inv.date}</p>
+                      <p className="font-medium text-gray-900">{formatDate(inv.issue_date)}</p>
                     </div>
                   </div>
 
@@ -230,7 +279,7 @@ export default function InvoicesPage() {
                   {/* Amount */}
                   <div className="text-center px-4">
                     <p className="text-sm text-gray-500">Amount</p>
-                    <p className="text-xl font-bold text-gray-900">${inv.amount}</p>
+                    <p className="text-xl font-bold text-gray-900">{formatCurrency(Number(inv.total ?? inv.amount ?? 0))}</p>
                   </div>
 
                   {/* Actions */}
@@ -242,7 +291,7 @@ export default function InvoicesPage() {
             ))}
           </div>
 
-          {filteredInvoices.length === 0 && (
+          {!loading && filteredInvoices.length === 0 && (
             <div className="text-center py-12">
               <p className="text-gray-500">No invoices found</p>
             </div>
