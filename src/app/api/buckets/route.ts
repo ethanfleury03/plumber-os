@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   try {
     // Get max position
     const maxPos = await sql`SELECT COALESCE(MAX(position), 0) as max FROM buckets`;
-    const newPosition = (maxPos[0]?.max || 0) + 1;
+    const newPosition = Number(maxPos[0]?.max ?? 0) + 1;
 
     const result = await sql`
       INSERT INTO buckets (title, color, position)

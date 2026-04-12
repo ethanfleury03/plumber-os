@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
@@ -8,21 +9,28 @@ import {
   LayoutDashboard,
   Target,
   Briefcase,
-  Users,
-  FileText,
   Calendar,
   MapPin,
   UserCog,
   Phone,
   Settings,
+  ChevronRight,
+  ChevronDown,
+  LayoutGrid,
+  Users,
+  FileText,
 } from 'lucide-react';
+import clsx from 'clsx';
 
-export const APP_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/crm', label: 'CRM', icon: Target },
-  { href: '/jobs', label: 'Jobs', icon: Briefcase },
+const CRM_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: '/crm', label: 'Board', icon: LayoutGrid },
   { href: '/customers', label: 'Customers', icon: Users },
   { href: '/invoices', label: 'Invoices', icon: FileText },
+];
+
+const PRIMARY_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/map', label: 'Map', icon: MapPin },
   { href: '/team', label: 'Team', icon: UserCog },
@@ -37,6 +45,13 @@ function navItemIsActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function isCrmSectionPath(pathname: string) {
+  if (pathname === '/crm' || pathname.startsWith('/crm/')) return true;
+  if (pathname === '/customers' || pathname.startsWith('/customers/')) return true;
+  if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;
+  return false;
+}
+
 type AppSidebarProps = {
   /** Rendered above the user profile card (e.g. Calls AI status). */
   beforeUserCard?: ReactNode;
@@ -44,6 +59,23 @@ type AppSidebarProps = {
 
 export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
   const pathname = usePathname() || '';
+  const [crmOpen, setCrmOpen] = useState(() => isCrmSectionPath(pathname));
+  const prevPathname = useRef(pathname);
+
+  useEffect(() => {
+    const prev = prevPathname.current;
+    const wasIn = isCrmSectionPath(prev);
+    const nowIn = isCrmSectionPath(pathname);
+    if (!wasIn && nowIn) {
+      setCrmOpen(true);
+    }
+    if (wasIn && !nowIn) {
+      setCrmOpen(false);
+    }
+    prevPathname.current = pathname;
+  }, [pathname]);
+
+  const crmSectionActive = isCrmSectionPath(pathname);
 
   return (
     <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
@@ -59,16 +91,86 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
       </div>
 
       <nav className="flex-1 px-3 pb-2 relative z-10 overflow-y-auto">
-        {APP_NAV_ITEMS.map((item) => {
+        {PRIMARY_NAV_ITEMS.slice(0, 1).map((item) => {
           const Icon = item.icon;
           const active = navItemIsActive(pathname, item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`sidebar-item w-full flex items-center gap-3 px-4 py-2.5 mb-0.5 text-sm ${
+              className={clsx(
+                'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 mb-0.5 text-sm',
                 active ? 'active text-white' : 'text-slate-300 hover:text-white'
-              }`}
+              )}
+            >
+              <Icon className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
+              <span className="font-medium leading-none">{item.label}</span>
+            </Link>
+          );
+        })}
+
+        <div className="my-2 border-t border-white/10" aria-hidden />
+
+        <div className="mb-1">
+          <button
+            type="button"
+            onClick={() => setCrmOpen((open) => !open)}
+            aria-expanded={crmOpen}
+            className={clsx(
+              'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left',
+              crmSectionActive ? 'active text-white' : 'text-slate-300 hover:text-white'
+            )}
+          >
+            <Target className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
+            <span className="font-medium leading-none flex-1">CRM</span>
+            {crmOpen ? (
+              <ChevronDown className="w-4 h-4 flex-shrink-0 opacity-80" aria-hidden />
+            ) : (
+              <ChevronRight className="w-4 h-4 flex-shrink-0 opacity-80" aria-hidden />
+            )}
+          </button>
+
+          {crmOpen ? (
+            <div className="mt-1 ml-3 pl-3 border-l border-white/15 space-y-0.5">
+              {CRM_LINKS.map((sub) => {
+                const SubIcon = sub.icon;
+                const active =
+                  sub.href === '/crm'
+                    ? pathname === '/crm' || pathname.startsWith('/crm/')
+                    : navItemIsActive(pathname, sub.href);
+                return (
+                  <Link
+                    key={sub.href}
+                    href={sub.href}
+                    className={clsx(
+                      'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors',
+                      active
+                        ? 'bg-white/12 text-white font-medium'
+                        : 'text-slate-400 hover:bg-white/6 hover:text-white'
+                    )}
+                  >
+                    <SubIcon className="w-4 h-4 flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
+                    <span className="leading-none">{sub.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="my-2 border-t border-white/10" aria-hidden />
+
+        {PRIMARY_NAV_ITEMS.slice(1).map((item) => {
+          const Icon = item.icon;
+          const active = navItemIsActive(pathname, item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={clsx(
+                'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 mb-0.5 text-sm',
+                active ? 'active text-white' : 'text-slate-300 hover:text-white'
+              )}
             >
               <Icon className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
               <span className="font-medium leading-none">{item.label}</span>

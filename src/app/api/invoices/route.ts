@@ -1,9 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
 
@@ -14,50 +11,82 @@ const toMoney = (value: unknown, fallback = 0) => {
 
 const todayIsoDate = () => new Date().toISOString().split('T')[0];
 
+function mapInvoiceRow(row: Record<string, unknown>) {
+  const cust_name = row.cust_name;
+  const cust_email = row.cust_email;
+  const cust_phone = row.cust_phone;
+  const inv = { ...row };
+  delete inv.cust_name;
+  delete inv.cust_email;
+  delete inv.cust_phone;
+  const customerId = inv.customer_id;
+  const customers =
+    customerId &&
+    (cust_name != null || cust_email != null || cust_phone != null)
+      ? {
+          name: cust_name as string | null | undefined,
+          email: cust_email as string | null | undefined,
+          phone: cust_phone as string | null | undefined,
+        }
+      : null;
+  return { ...inv, customers };
+}
+
 async function getNextInvoiceNumber() {
-  const { count, error } = await supabase
-    .from('invoices')
-    .select('*', { count: 'exact', head: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const next = (count || 0) + 1;
+  const rows = await sql`SELECT COUNT(*) as total FROM invoices`;
+  const total = Number(rows[0]?.total || 0);
+  const next = total + 1;
   return `INV-${String(next).padStart(4, '0')}`;
 }
 
-// GET - Fetch invoices
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
   const customer_id = searchParams.get('customer_id');
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '10');
+  const offset = (page - 1) * limit;
 
-  let query = supabase
-    .from('invoices')
-    .select('*, customers(name, email, phone)', { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range((page - 1) * limit, page * limit - 1);
+  try {
+    let countQuery = sql`SELECT COUNT(*) as total FROM invoices i WHERE 1=1`;
+    let dataQuery = sql`
+      SELECT
+        i.*,
+        c.name AS cust_name,
+        c.email AS cust_email,
+        c.phone AS cust_phone
+      FROM invoices i
+      LEFT JOIN customers c ON i.customer_id = c.id
+      WHERE 1=1
+    `;
 
-  if (status && status !== 'all') {
-    query = query.eq('status', status);
+    if (status && status !== 'all') {
+      countQuery = sql`${countQuery} AND i.status = ${status}`;
+      dataQuery = sql`${dataQuery} AND i.status = ${status}`;
+    }
+    if (customer_id && customer_id !== 'all') {
+      countQuery = sql`${countQuery} AND i.customer_id = ${customer_id}`;
+      dataQuery = sql`${dataQuery} AND i.customer_id = ${customer_id}`;
+    }
+
+    const countResult = await countQuery;
+    const total = Number(countResult[0]?.total || 0);
+
+    dataQuery = sql`
+      ${dataQuery}
+      ORDER BY i.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    const rows = await dataQuery;
+    const invoices = rows.map(mapInvoiceRow);
+
+    return NextResponse.json({ invoices, total });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
-  if (customer_id && customer_id !== 'all') {
-    query = query.eq('customer_id', customer_id);
-  }
-
-  const { data, error, count } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ invoices: data, total: count });
 }
 
-// POST - Create invoice
 export async function POST(request: Request) {
   const body = await request.json();
 
@@ -70,96 +99,71 @@ export async function POST(request: Request) {
     let amount = toMoney(body.amount);
 
     if (jobId) {
-      const { data: job, error: jobError } = await supabase
-        .from('jobs')
-        .select('id, company_id, customer_id, type, description, estimated_price, final_price')
-        .eq('id', jobId)
-        .single();
-
-      if (jobError) {
-        return NextResponse.json({ error: jobError.message }, { status: 400 });
+      const jobRows = await sql`
+        SELECT id, company_id, customer_id, type, description, estimated_price, final_price
+        FROM jobs WHERE id = ${jobId} LIMIT 1
+      `;
+      if (jobRows.length === 0) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 400 });
       }
-
-      companyId = companyId || job.company_id;
-      customerId = customerId || job.customer_id;
-      serviceType = serviceType || job.type;
-      notes = notes || job.description || null;
-      amount = amount || toMoney(job.final_price, toMoney(job.estimated_price));
+      const job = jobRows[0];
+      companyId = companyId || (job.company_id as string);
+      customerId = customerId || (job.customer_id as string | null);
+      serviceType = serviceType || (job.type as string);
+      notes = notes || (job.description as string | null) || null;
+      amount =
+        amount ||
+        toMoney(job.final_price, toMoney(job.estimated_price));
     }
 
     if (body.lead_id) {
-      const { data: lead, error: leadError } = await supabase
-        .from('leads')
-        .select('id, company_id, customer_id, issue, description')
-        .eq('id', body.lead_id)
-        .single();
-
-      if (leadError) {
-        return NextResponse.json({ error: leadError.message }, { status: 400 });
+      const leadRows = await sql`
+        SELECT id, company_id, customer_id, issue, description
+        FROM leads WHERE id = ${body.lead_id} LIMIT 1
+      `;
+      if (leadRows.length === 0) {
+        return NextResponse.json({ error: 'Lead not found' }, { status: 400 });
       }
-
-      companyId = companyId || lead.company_id;
-      customerId = customerId || lead.customer_id;
-      serviceType = serviceType || lead.issue;
-      notes = notes || lead.description || null;
+      const lead = leadRows[0];
+      companyId = companyId || (lead.company_id as string);
+      customerId = customerId || (lead.customer_id as string | null);
+      serviceType = serviceType || (lead.issue as string);
+      notes = notes || (lead.description as string | null) || null;
     }
 
     if (!companyId) {
-      const { data: company, error: companyError } = await supabase
-        .from('companies')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .single();
-
-      if (companyError) {
-        return NextResponse.json({ error: companyError.message }, { status: 400 });
+      const companies = await sql`SELECT id FROM companies ORDER BY created_at ASC LIMIT 1`;
+      if (companies.length === 0) {
+        return NextResponse.json({ error: 'No company found' }, { status: 400 });
       }
-
-      companyId = company.id;
+      companyId = companies[0].id as string;
     }
 
     if (!customerId && body.customer_name && companyId) {
-      let existingCustomer = null;
-
+      let existing: Record<string, unknown>[] = [];
       if (body.customer_phone) {
-        const lookup = await supabase
-          .from('customers')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('phone', body.customer_phone)
-          .limit(1)
-          .maybeSingle();
-
-        if (lookup.error) {
-          return NextResponse.json({ error: lookup.error.message }, { status: 500 });
-        }
-
-        existingCustomer = lookup.data;
+        existing = await sql`
+          SELECT id FROM customers
+          WHERE company_id = ${companyId} AND phone = ${body.customer_phone}
+          LIMIT 1
+        `;
       }
 
-      if (existingCustomer) {
-        customerId = existingCustomer.id;
+      if (existing.length > 0) {
+        customerId = existing[0].id as string;
       } else {
-        const createdCustomer = await supabase
-          .from('customers')
-          .insert([
-            {
-              company_id: companyId,
-              name: body.customer_name,
-              phone: body.customer_phone || 'Unknown',
-              email: body.customer_email || null,
-              address: body.customer_address || null,
-            },
-          ])
-          .select('id')
-          .single();
-
-        if (createdCustomer.error) {
-          return NextResponse.json({ error: createdCustomer.error.message }, { status: 500 });
-        }
-
-        customerId = createdCustomer.data.id;
+        const created = await sql`
+          INSERT INTO customers (company_id, name, phone, email, address)
+          VALUES (
+            ${companyId},
+            ${body.customer_name},
+            ${body.customer_phone || 'Unknown'},
+            ${body.customer_email || null},
+            ${body.customer_address || null}
+          )
+          RETURNING id
+        `;
+        customerId = created[0].id as string;
       }
     }
 
@@ -169,68 +173,109 @@ export async function POST(request: Request) {
     const dueDate = body.due_date || null;
     const paidDate = body.status === 'paid' ? body.paid_date || todayIsoDate() : null;
 
-    const invoice = {
-      company_id: companyId,
-      customer_id: customerId,
-      job_id: jobId,
-      invoice_number: await getNextInvoiceNumber(),
-      service_type: serviceType,
-      status: body.status || 'pending',
-      amount,
-      tax,
-      total,
-      issue_date: issueDate,
-      due_date: dueDate,
-      paid_date: paidDate,
-      notes,
-    };
+    const invoiceNumber = await getNextInvoiceNumber();
 
-    const { data, error } = await supabase
-      .from('invoices')
-      .insert([invoice])
-      .select('*, customers(name, email, phone)')
-      .single();
+    await sql`
+      INSERT INTO invoices (
+        company_id, customer_id, job_id, invoice_number, service_type,
+        status, amount, tax, total, issue_date, due_date, paid_date, notes
+      )
+      VALUES (
+        ${companyId},
+        ${customerId},
+        ${jobId},
+        ${invoiceNumber},
+        ${serviceType},
+        ${body.status || 'pending'},
+        ${amount},
+        ${tax},
+        ${total},
+        ${issueDate},
+        ${dueDate},
+        ${paidDate},
+        ${notes}
+      )
+    `;
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    const fullRows = await sql`
+      SELECT
+        i.*,
+        c.name AS cust_name,
+        c.email AS cust_email,
+        c.phone AS cust_phone
+      FROM invoices i
+      LEFT JOIN customers c ON i.customer_id = c.id
+      WHERE i.invoice_number = ${invoiceNumber}
+      LIMIT 1
+    `;
 
-    return NextResponse.json({ invoice: data });
+    return NextResponse.json({ invoice: mapInvoiceRow(fullRows[0]) });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
-// PUT - Update invoice (mark as paid, etc.)
 export async function PUT(request: Request) {
   const body = await request.json();
   const { id, ...updates } = body;
 
-  const payload = {
-    ...updates,
-    paid_date:
-      updates.status === 'paid'
-        ? updates.paid_date || todayIsoDate()
-        : updates.status && updates.status !== 'paid'
-          ? null
-          : updates.paid_date,
-  };
-
-  const { data, error } = await supabase
-    .from('invoices')
-    .update(payload)
-    .eq('id', id)
-    .select('*, customers(name, email, phone)')
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!id) {
+    return NextResponse.json({ error: 'ID required' }, { status: 400 });
   }
 
-  return NextResponse.json({ invoice: data });
+  try {
+    const existing = await sql`SELECT * FROM invoices WHERE id = ${id} LIMIT 1`;
+    if (existing.length === 0) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+    const cur = existing[0];
+
+    let paidDate: string | null = (cur.paid_date as string | null) ?? null;
+    if (updates.status === 'paid') {
+      paidDate = (updates.paid_date as string) || todayIsoDate();
+    } else if (updates.status != null && updates.status !== 'paid') {
+      paidDate = null;
+    } else if (updates.paid_date !== undefined) {
+      paidDate = updates.paid_date as string | null;
+    }
+
+    await sql`
+      UPDATE invoices SET
+        company_id = ${updates.company_id ?? cur.company_id},
+        customer_id = ${updates.customer_id ?? cur.customer_id},
+        job_id = ${updates.job_id ?? cur.job_id},
+        invoice_number = ${updates.invoice_number ?? cur.invoice_number},
+        service_type = ${updates.service_type ?? cur.service_type},
+        status = ${updates.status ?? cur.status},
+        amount = ${updates.amount ?? cur.amount},
+        tax = ${updates.tax ?? cur.tax},
+        total = ${updates.total ?? cur.total},
+        issue_date = ${updates.issue_date ?? cur.issue_date},
+        due_date = ${updates.due_date ?? cur.due_date},
+        paid_date = ${paidDate},
+        notes = ${updates.notes ?? cur.notes},
+        updated_at = datetime('now')
+      WHERE id = ${id}
+    `;
+
+    const fullRows = await sql`
+      SELECT
+        i.*,
+        c.name AS cust_name,
+        c.email AS cust_email,
+        c.phone AS cust_phone
+      FROM invoices i
+      LEFT JOIN customers c ON i.customer_id = c.id
+      WHERE i.id = ${id}
+      LIMIT 1
+    `;
+
+    return NextResponse.json({ invoice: mapInvoiceRow(fullRows[0]) });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  }
 }
 
-// DELETE - Delete invoice
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -239,14 +284,10 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'ID required' }, { status: 400 });
   }
 
-  const { error } = await supabase
-    .from('invoices')
-    .delete()
-    .eq('id', id);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    await sql`DELETE FROM invoices WHERE id = ${id}`;
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true });
 }

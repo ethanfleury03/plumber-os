@@ -33,11 +33,11 @@ export async function GET(request: Request) {
     let query = sql`
       SELECT
         p.*,
-        COUNT(j.id) FILTER (WHERE j.scheduled_date = CURRENT_DATE) AS jobs_today,
+        COUNT(j.id) FILTER (WHERE date(j.scheduled_date) = date('now')) AS jobs_today,
         COUNT(j.id) FILTER (WHERE j.status = 'in_progress') AS jobs_in_progress,
         COUNT(j.id) FILTER (
           WHERE j.status = 'completed'
-            AND j.completed_at >= date_trunc('week', NOW())
+            AND datetime(j.completed_at) >= datetime('now', '-7 days')
         ) AS completed_this_week
       FROM plumbers p
       LEFT JOIN jobs j ON j.plumber_id = p.id
@@ -46,16 +46,16 @@ export async function GET(request: Request) {
 
     if (search) {
       query = sql`${query} AND (
-        p.name ILIKE ${'%' + search + '%'}
-        OR p.email ILIKE ${'%' + search + '%'}
-        OR p.phone ILIKE ${'%' + search + '%'}
+        p.name LIKE ${'%' + search + '%'}
+        OR p.email LIKE ${'%' + search + '%'}
+        OR p.phone LIKE ${'%' + search + '%'}
       )`;
     }
 
     if (active === 'true') {
-      query = sql`${query} AND p.active = true`;
+      query = sql`${query} AND p.active = 1`;
     } else if (active === 'false') {
-      query = sql`${query} AND p.active = false`;
+      query = sql`${query} AND p.active = 0`;
     }
 
     query = sql`
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         ${body.phone || null},
         ${body.role || 'Plumber'},
         ${body.active ?? true},
-        NOW()
+        datetime('now')
       )
       RETURNING *
     `;

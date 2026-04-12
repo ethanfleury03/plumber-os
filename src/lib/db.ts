@@ -1,5 +1,107 @@
-import postgres from 'postgres';
+import Database from 'better-sqlite3';
+import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
-const connectionString = process.env.DATABASE_URL || '';
+function bindValue(v: unknown): unknown {
+  if (v === undefined) return null;
+  if (v === null) return null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'bigint') return Number(v);
+  return v;
+}
 
-export const sql = postgres(connectionString);
+function normalizeSqlDialect(text: string): string {
+  return text
+    .replace(/\bILIKE\b/gi, 'LIKE')
+    .replace(/\bNOW\(\)/g, "datetime('now')");
+}
+
+function normalizeRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      out[k] = typeof v === 'bigint' ? Number(v) : v;
+    }
+    return out;
+  });
+}
+
+function flattenFragments(
+  strings: TemplateStringsArray,
+  values: readonly unknown[],
+): { text: string; args: unknown[] } {
+  let text = '';
+  const args: unknown[] = [];
+
+  for (let i = 0; i < strings.length; i++) {
+    text += strings[i];
+    if (i < values.length) {
+      const v = values[i];
+      if (v instanceof SqlQuery) {
+        const inner = flattenFragments(v.strings, v.values);
+        text += inner.text;
+        args.push(...inner.args);
+      } else {
+        text += '?';
+        args.push(v);
+      }
+    }
+  }
+  return { text, args };
+}
+
+let dbInstance: Database.Database | null = null;
+
+export function getDb(): Database.Database {
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  const file =
+    process.env.SQLITE_PATH || path.join(process.cwd(), 'data', 'plumberos.db');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+
+  dbInstance = new Database(file);
+  dbInstance.pragma('journal_mode = DELETE');
+  dbInstance.pragma('foreign_keys = ON');
+  dbInstance.function('uuid', randomUUID);
+
+  return dbInstance;
+}
+
+export class SqlQuery implements PromiseLike<Record<string, unknown>[]> {
+  constructor(
+    readonly strings: TemplateStringsArray,
+    readonly values: readonly unknown[],
+  ) {}
+
+  private run(): Record<string, unknown>[] {
+    let { text, args } = flattenFragments(this.strings, this.values);
+    text = normalizeSqlDialect(text);
+    args = args.map(bindValue);
+
+    const db = getDb();
+    const stmt = db.prepare(text);
+    const head = text.trim().toUpperCase();
+    if (head.includes('RETURNING') || head.startsWith('SELECT') || head.startsWith('WITH')) {
+      return normalizeRows(stmt.all(...args) as Record<string, unknown>[]);
+    }
+    stmt.run(...args);
+    return [];
+  }
+
+  then<TResult1 = Record<string, unknown>[], TResult2 = never>(
+    onfulfilled?:
+      | ((value: Record<string, unknown>[]) => TResult1 | PromiseLike<TResult1>)
+      | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
+    return Promise.resolve().then(() => this.run()).then(onfulfilled, onrejected);
+  }
+}
+
+export function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlQuery {
+  return new SqlQuery(strings, values);
+}

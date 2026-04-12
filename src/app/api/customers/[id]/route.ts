@@ -1,45 +1,34 @@
-import { createClient } from '@supabase/supabase-js';
+import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Unknown error';
 
-// GET - Fetch single customer with job and invoice history
 export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  
-  // Get customer
-  const { data: customer, error: customerError } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('id', id)
-    .single();
 
-  if (customerError) {
-    return NextResponse.json({ error: customerError.message }, { status: 500 });
+  try {
+    const customerRows = await sql`SELECT * FROM customers WHERE id = ${id}`;
+    if (customerRows.length === 0) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
+    const jobs = await sql`
+      SELECT * FROM jobs WHERE customer_id = ${id} ORDER BY created_at DESC
+    `;
+    const invoices = await sql`
+      SELECT * FROM invoices WHERE customer_id = ${id} ORDER BY created_at DESC
+    `;
+
+    return NextResponse.json({
+      customer: customerRows[0],
+      jobs,
+      invoices,
+    });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
-
-  // Get customer's jobs
-  const { data: jobs } = await supabase
-    .from('jobs')
-    .select('*')
-    .eq('customer_id', id)
-    .order('created_at', { ascending: false });
-
-  // Get customer's invoices
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('*')
-    .eq('customer_id', id)
-    .order('created_at', { ascending: false });
-
-  return NextResponse.json({ 
-    customer,
-    jobs: jobs || [],
-    invoices: invoices || []
-  });
 }
