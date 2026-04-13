@@ -137,3 +137,124 @@ CREATE INDEX IF NOT EXISTS idx_invoices_job_id ON invoices(job_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_call_logs_company_id ON call_logs(company_id);
 CREATE INDEX IF NOT EXISTS idx_call_logs_created_at ON call_logs(created_at);
+
+-- AI Receptionist (see docs/RECEPTIONIST.md)
+CREATE TABLE IF NOT EXISTS receptionist_mock_scenarios (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  transcript_script_json TEXT NOT NULL,
+  expected_outcome TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_settings (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_name TEXT,
+  greeting TEXT,
+  disclosure_enabled INTEGER NOT NULL DEFAULT 1,
+  recording_enabled INTEGER NOT NULL DEFAULT 0,
+  business_hours_json TEXT,
+  after_hours_mode TEXT DEFAULT 'message_and_callback',
+  allowed_actions_json TEXT,
+  emergency_keywords_json TEXT,
+  booking_rules_json TEXT,
+  default_call_outcome_rules_json TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'mock',
+  provider_config_json TEXT,
+  internal_instructions TEXT,
+  callback_booking_enabled INTEGER NOT NULL DEFAULT 1,
+  quote_visit_booking_enabled INTEGER NOT NULL DEFAULT 1,
+  retell_agent_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_calls (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'mock',
+  provider_call_id TEXT,
+  twilio_call_sid TEXT,
+  provider_agent_id TEXT,
+  provider_status TEXT,
+  direction TEXT NOT NULL DEFAULT 'inbound',
+  from_phone TEXT,
+  to_phone TEXT,
+  caller_name TEXT,
+  status TEXT NOT NULL DEFAULT 'mock',
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at TEXT,
+  duration_seconds INTEGER DEFAULT 0,
+  transcript_text TEXT,
+  ai_summary TEXT,
+  extracted_json TEXT,
+  recommended_next_step TEXT,
+  disposition TEXT,
+  urgency TEXT,
+  lead_id TEXT REFERENCES leads(id) ON DELETE SET NULL,
+  job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  appointment_id TEXT,
+  call_log_id TEXT REFERENCES call_logs(id) ON DELETE SET NULL,
+  recording_url TEXT,
+  raw_provider_payload_json TEXT,
+  mock_scenario_id TEXT,
+  current_transcript_index INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_transcript_segments (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  call_id TEXT NOT NULL REFERENCES receptionist_calls(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  speaker TEXT NOT NULL,
+  text TEXT NOT NULL,
+  timestamp_ms INTEGER,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(call_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_events (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  call_id TEXT NOT NULL REFERENCES receptionist_calls(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  payload_json TEXT,
+  source TEXT NOT NULL DEFAULT 'system',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_tool_invocations (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  call_id TEXT NOT NULL REFERENCES receptionist_calls(id) ON DELETE CASCADE,
+  tool_name TEXT NOT NULL,
+  request_json TEXT,
+  response_json TEXT,
+  status TEXT NOT NULL DEFAULT 'ok',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS receptionist_bookings (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  call_id TEXT NOT NULL REFERENCES receptionist_calls(id) ON DELETE CASCADE,
+  booking_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'requested',
+  requested_window_start TEXT,
+  requested_window_end TEXT,
+  scheduled_start TEXT,
+  scheduled_end TEXT,
+  notes TEXT,
+  assigned_to TEXT,
+  job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_receptionist_calls_created_at ON receptionist_calls(created_at);
+CREATE INDEX IF NOT EXISTS idx_receptionist_calls_status ON receptionist_calls(status);
+CREATE INDEX IF NOT EXISTS idx_receptionist_segments_call ON receptionist_transcript_segments(call_id);
+CREATE INDEX IF NOT EXISTS idx_receptionist_events_call ON receptionist_events(call_id);
+CREATE INDEX IF NOT EXISTS idx_receptionist_bookings_call ON receptionist_bookings(call_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_twilio_sid ON receptionist_calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_receptionist_tool_call ON receptionist_tool_invocations(call_id);

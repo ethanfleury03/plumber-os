@@ -13,6 +13,7 @@ import {
   MapPin,
   UserCog,
   Phone,
+  Headphones,
   Settings,
   ChevronRight,
   ChevronDown,
@@ -35,6 +36,7 @@ const PRIMARY_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/map', label: 'Map', icon: MapPin },
   { href: '/team', label: 'Team', icon: UserCog },
   { href: '/calls', label: 'Calls', icon: Phone },
+  { href: '/receptionist', label: 'Receptionist', icon: Headphones },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

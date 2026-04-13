@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { applyReceptionistMigrations } from '@/lib/receptionist/sqlite-migrate';
 
 function bindValue(v: unknown): unknown {
   if (v === undefined) return null;
@@ -54,6 +55,27 @@ function flattenFragments(
 
 let dbInstance: Database.Database | null = null;
 
+/**
+ * Older local DBs may lack receptionist (and other) tables. Apply committed
+ * schema once — all statements use IF NOT EXISTS, so this is safe for existing data.
+ */
+function ensureCommittedSchema(db: Database.Database) {
+  const hasReceptionist = db
+    .prepare(
+      `SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'receptionist_calls' LIMIT 1`,
+    )
+    .get() as { ok: number } | undefined;
+  if (hasReceptionist) return;
+
+  const schemaPath = path.join(process.cwd(), 'data', 'schema.sqlite.sql');
+  if (!fs.existsSync(schemaPath)) {
+    console.warn('[db] Missing schema file, skipping auto-migrate:', schemaPath);
+    return;
+  }
+  const schema = fs.readFileSync(schemaPath, 'utf8');
+  db.exec(schema);
+}
+
 export function getDb(): Database.Database {
   if (dbInstance) {
     return dbInstance;
@@ -67,6 +89,8 @@ export function getDb(): Database.Database {
   dbInstance.pragma('journal_mode = DELETE');
   dbInstance.pragma('foreign_keys = ON');
   dbInstance.function('uuid', randomUUID);
+  ensureCommittedSchema(dbInstance);
+  applyReceptionistMigrations(dbInstance);
 
   return dbInstance;
 }
