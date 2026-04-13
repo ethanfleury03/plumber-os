@@ -1,5 +1,10 @@
 import { sql } from '@/lib/db';
-import { insertReceptionistToolInvocation } from '@/lib/receptionist/repository';
+import type { ReceptionistCallMeta } from '@/lib/receptionist/hardening/types';
+import {
+  findRetellBrowserToolFallbackCallId,
+  insertReceptionistToolInvocation,
+  mergeReceptionistMetaPartial,
+} from '@/lib/receptionist/repository';
 import type { ExtractedCallData } from '@/lib/receptionist/types';
 
 export function verifyRetellToolSecret(request: Request): boolean {
@@ -108,6 +113,33 @@ export function normalizeRetellToolBody(input: unknown): Record<string, unknown>
   return out;
 }
 
+function truthyRetell(v: unknown): boolean {
+  return v === true || v === 'true' || v === 1 || v === 'yes';
+}
+
+/** Maps agent read-back / confirmation flags from tool payload into receptionist_meta_json. */
+export function confirmationMetaPatchFromRetellToolBody(body: Record<string, unknown>): Partial<ReceptionistCallMeta> {
+  const b = normalizeRetellToolBody(body);
+  return {
+    confirmations: {
+      callback_phone_readback:
+        truthyRetell(b.caller_confirmed_phone) ||
+        truthyRetell(b.phone_confirmed) ||
+        truthyRetell(b.callback_number_confirmed),
+      callback_window_readback:
+        truthyRetell(b.callback_window_confirmed) || truthyRetell(b.window_confirmed),
+      visit_address_readback:
+        truthyRetell(b.address_confirmed) || truthyRetell(b.service_address_confirmed),
+      visit_window_readback: truthyRetell(b.visit_window_confirmed),
+      issue_clarified: truthyRetell(b.issue_confirmed) || truthyRetell(b.problem_confirmed),
+    },
+  };
+}
+
+export async function mergeRetellToolConfirmationsOntoCall(callId: string, body: Record<string, unknown>) {
+  await mergeReceptionistMetaPartial(callId, confirmationMetaPatchFromRetellToolBody(body));
+}
+
 export async function readRetellToolJson(request: Request, routeLabel: string): Promise<Record<string, unknown>> {
   let raw: unknown;
   try {
@@ -129,9 +161,33 @@ export async function readRetellToolJson(request: Request, routeLabel: string): 
   return normalized;
 }
 
-export async function resolvePlumberCallIdFromToolBody(body: Record<string, unknown>): Promise<string | undefined> {
-  const b = normalizeRetellToolBody(body);
+function isPresentRetellBindingValue(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  if (s.toLowerCase() === 'null') return false;
+  return true;
+}
 
+/** True if the agent sent any non-empty call binding field (after normalizing nested args). */
+export function hasExplicitRetellCallBindingAttempt(body: Record<string, unknown>): boolean {
+  const b = normalizeRetellToolBody(body);
+  const keys = [
+    'receptionist_call_id',
+    'receptionistCallId',
+    'plumber_call_id',
+    'call_id',
+    'callId',
+    'retell_call_id',
+    'interaction_id',
+    'conversation_id',
+  ];
+  return keys.some((k) => isPresentRetellBindingValue(b[k]));
+}
+
+async function resolveExplicitPlumberCallIdFromNormalizedBody(
+  b: Record<string, unknown>,
+): Promise<string | undefined> {
   const recv =
     toOptionalString(b.receptionist_call_id) ||
     toOptionalString(b.receptionistCallId) ||
@@ -159,6 +215,51 @@ export async function resolvePlumberCallIdFromToolBody(body: Record<string, unkn
     if (rows.length) return rows[0].id as string;
   }
 
+  return undefined;
+}
+
+/**
+ * Resolves PlumberOS receptionist_calls.id from Retell tool payloads.
+ * Twilio-backed calls: explicit call_id / receptionist_call_id (unchanged).
+ * Browser test: when all IDs are null/omitted, uses a unique Retell row without twilio_call_sid
+ * (active, ringing, or recently completed — so end_call_notes still binds after call_ended).
+ * (see findRetellBrowserToolFallbackCallId). Webhook must have run first to create that row from call.call_id.
+ */
+export async function resolvePlumberCallIdFromToolBody(
+  body: Record<string, unknown>,
+  routeLabel = 'retell_tool',
+): Promise<string | undefined> {
+  const b = normalizeRetellToolBody(body);
+  const explicitAttempt = hasExplicitRetellCallBindingAttempt(body);
+
+  const direct = await resolveExplicitPlumberCallIdFromNormalizedBody(b);
+  if (direct) {
+    if (retellToolDebugEnabled()) {
+      console.info(`[retell-tool:${routeLabel}] resolution via=explicit_body plumber_call_id=${direct}`);
+    }
+    return direct;
+  }
+
+  if (explicitAttempt) {
+    if (retellToolDebugEnabled()) {
+      console.info(
+        `[retell-tool:${routeLabel}] resolution via=none (explicit call binding present but no matching DB row)`,
+      );
+    }
+    return undefined;
+  }
+
+  const fb = await findRetellBrowserToolFallbackCallId();
+  if (fb) {
+    console.info(`[retell-tool:${routeLabel}] fallback_match via=${fb.reason} plumber_call_id=${fb.id}`);
+    return fb.id;
+  }
+
+  if (retellToolDebugEnabled()) {
+    console.info(
+      `[retell-tool:${routeLabel}] resolution via=none (no explicit id; no unique retell browser fallback row)`,
+    );
+  }
   return undefined;
 }
 

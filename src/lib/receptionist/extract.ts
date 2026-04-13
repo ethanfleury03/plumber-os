@@ -1,3 +1,9 @@
+import {
+  classifyEmergencyTier,
+  collectSpamSignals,
+  detectSuspiciousIssueDescription,
+  tryNormalizeIssuePhrase,
+} from '@/lib/receptionist/hardening/heuristics';
 import type { ExtractedCallData, MockScenarioDefinition, ReceptionistDisposition } from '@/lib/receptionist/types';
 
 const DEFAULT_EMERGENCY_PHRASES = [
@@ -103,20 +109,44 @@ export function extractCallFieldsFromTranscript(
     data.phone = phones[0];
   }
 
-  const spamSignals = [
+  const spamSignalsLegacy = [
     'car warranty',
     'limited time',
     'press 1',
     'automated offer',
     'not interested in plumbing',
   ];
-  if (containsAny(transcript, spamSignals)) {
+  if (containsAny(transcript, spamSignalsLegacy)) {
     data.spamLikely = true;
   }
 
-  if (containsAny(transcript, emergencyKeywords)) {
+  const triageText = `${transcript}\n${callerLines}`;
+  const spamHits = collectSpamSignals(triageText, undefined);
+  const triage = classifyEmergencyTier({
+    transcript: triageText,
+    emergencyKeywords,
+    spamSignals: data.spamLikely ? [...spamHits, 'legacy_spam_signal'] : spamHits,
+  });
+  if (triage.tier === 'emergency') {
     data.emergencyDetected = true;
     data.urgency = 'emergency';
+    data.spamLikely = false;
+  } else if (triage.tier === 'urgent') {
+    data.urgency = data.urgency === 'emergency' ? 'emergency' : 'high';
+    if (triage.hasPlumbingContent) data.spamLikely = false;
+  } else if (triage.tier === 'spam' && !triage.hasPlumbingContent) {
+    data.spamLikely = true;
+  } else if (triage.hasPlumbingContent) {
+    data.spamLikely = false;
+  }
+
+  const issueProbe = detectSuspiciousIssueDescription(
+    data.issueDescription || data.issueType || undefined,
+  );
+  const norm = tryNormalizeIssuePhrase(data.issueDescription || data.issueType || undefined);
+  if (issueProbe.suspicious && norm.normalized) {
+    data.issueDescription = norm.normalized;
+    data.issueType = norm.normalized;
   }
 
   if (data.spamLikely) {
@@ -156,8 +186,8 @@ export function decideDisposition(
   extracted: ExtractedCallData,
   scenario: MockScenarioDefinition | null,
 ): ReceptionistDisposition {
-  if (extracted.spamLikely) return 'spam';
   if (extracted.emergencyDetected) return 'emergency';
+  if (extracted.spamLikely) return 'spam';
   if (scenario?.expectedOutcome) return scenario.expectedOutcome;
   if (extracted.preferredVisitWindow) return 'quote_visit_booked';
   if (extracted.preferredCallbackWindow) return 'callback_booked';

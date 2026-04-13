@@ -10,7 +10,7 @@ export async function POST(
 ) {
   const { id } = await params;
   try {
-    const result = await receptionistService.bookCallbackFromCall(id);
+    const result = await receptionistService.bookCallbackFromCall(id, { skipIssueClarificationGuard: true });
     return NextResponse.json(result);
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

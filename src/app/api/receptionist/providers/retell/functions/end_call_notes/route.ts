@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json(toolJsonError('Unauthorized', 'unauthorized'), { status: 401 });
   }
   const body = await readRetellToolJson(request, 'end_call_notes');
-  const callId = await resolvePlumberCallIdFromToolBody(body);
+  const callId = await resolvePlumberCallIdFromToolBody(body, 'end_call_notes');
   if (!callId) {
     logRetellToolDebug('end_call_notes', request, {
       normalizedBody: body,

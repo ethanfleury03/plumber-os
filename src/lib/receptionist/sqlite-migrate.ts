@@ -24,6 +24,10 @@ export function applyReceptionistMigrations(db: Database.Database) {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_twilio_sid
      ON receptionist_calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL`,
   );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_provider_call_id
+     ON receptionist_calls(provider_call_id) WHERE provider_call_id IS NOT NULL`,
+  );
 
   const events = tableColumns(db, 'receptionist_events');
   if (!events.has('source')) {
@@ -33,6 +37,10 @@ export function applyReceptionistMigrations(db: Database.Database) {
   const settings = tableColumns(db, 'receptionist_settings');
   if (!settings.has('retell_agent_id')) {
     db.exec('ALTER TABLE receptionist_settings ADD COLUMN retell_agent_id TEXT');
+  }
+
+  if (!calls.has('receptionist_meta_json')) {
+    db.exec('ALTER TABLE receptionist_calls ADD COLUMN receptionist_meta_json TEXT');
   }
 
   db.exec(`

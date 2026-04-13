@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS receptionist_calls (
   raw_provider_payload_json TEXT,
   mock_scenario_id TEXT,
   current_transcript_index INTEGER NOT NULL DEFAULT 0,
+  receptionist_meta_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -257,4 +258,5 @@ CREATE INDEX IF NOT EXISTS idx_receptionist_segments_call ON receptionist_transc
 CREATE INDEX IF NOT EXISTS idx_receptionist_events_call ON receptionist_events(call_id);
 CREATE INDEX IF NOT EXISTS idx_receptionist_bookings_call ON receptionist_bookings(call_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_twilio_sid ON receptionist_calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_provider_call_id ON receptionist_calls(provider_call_id) WHERE provider_call_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_receptionist_tool_call ON receptionist_tool_invocations(call_id);

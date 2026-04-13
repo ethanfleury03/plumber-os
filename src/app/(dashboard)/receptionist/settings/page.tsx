@@ -254,6 +254,37 @@ export default function ReceptionistSettingsPage() {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Booking rules (JSON)</label>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[88px]"
+                value={settings.booking_rules_json || ''}
+                onChange={(e) => updateField('booking_rules_json', e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Optional keys: <code className="bg-gray-100 px-1 rounded">minNoticeHours</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">duplicateWindowMinutes</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">timezone</code> (e.g. America/Toronto),{' '}
+                <code className="bg-gray-100 px-1 rounded">spamKeywords</code> (string[]),{' '}
+                <code className="bg-gray-100 px-1 rounded">silenceTranscriptMaxChars</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">emergencyEscalation</code> (
+                <code className="bg-gray-100 px-1 rounded">flag_only</code> |{' '}
+                <code className="bg-gray-100 px-1 rounded">flag_and_callback</code>).
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Default outcome rules (JSON)</label>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[56px]"
+                value={settings.default_call_outcome_rules_json || ''}
+                onChange={(e) => updateField('default_call_outcome_rules_json', e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                May include <code className="bg-gray-100 px-1 rounded">defaultDisposition</code> and{' '}
+                <code className="bg-gray-100 px-1 rounded">emergencyEscalation</code> for documentation; primary
+                escalation behavior is read from booking rules when present.
+              </p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Allowed actions (JSON)</label>
               <textarea
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[56px]"

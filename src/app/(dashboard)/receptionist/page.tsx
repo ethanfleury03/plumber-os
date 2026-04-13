@@ -35,6 +35,7 @@ interface DashboardCall {
   ai_summary: string | null;
   extracted_json: string | null;
   recommended_next_step: string | null;
+  receptionist_meta_json?: string | null;
 }
 
 interface IntegrationSummary {
@@ -74,8 +75,54 @@ function dispositionBadge(d: string | null) {
   if (!d) return 'bg-gray-100 text-gray-700';
   if (d === 'emergency') return 'bg-red-100 text-red-800 border border-red-200';
   if (d === 'spam') return 'bg-slate-200 text-slate-700';
+  if (d === 'follow_up_needed') return 'bg-amber-50 text-amber-900 border border-amber-200';
   if (d === 'callback_booked' || d === 'quote_visit_booked') return 'bg-emerald-100 text-emerald-800';
   return 'bg-blue-50 text-blue-800';
+}
+
+function metaChecklistIncomplete(json: string | null | undefined): boolean {
+  if (!json?.trim()) return false;
+  try {
+    const o = JSON.parse(json) as { completeness?: { sufficient?: boolean } };
+    return o.completeness?.sufficient === false;
+  } catch {
+    return false;
+  }
+}
+
+function metaCallerBehavior(json: string | null | undefined): string | null {
+  if (!json?.trim()) return null;
+  try {
+    const o = JSON.parse(json) as { callerBehavior?: string };
+    return o.callerBehavior || null;
+  } catch {
+    return null;
+  }
+}
+
+function metaOperationalPriority(json: string | null | undefined): string | null {
+  if (!json?.trim()) return null;
+  try {
+    const o = JSON.parse(json) as { operationalPriority?: string };
+    return o.operationalPriority || null;
+  } catch {
+    return null;
+  }
+}
+
+function behaviorBadge(b: string | null): { className: string; label: string } | null {
+  if (!b) return null;
+  if (b === 'abusive_but_legitimate') return { className: 'bg-orange-100 text-orange-800', label: 'abusive' };
+  if (b === 'emergency_legitimate') return { className: 'bg-red-50 text-red-700', label: 'emerg.' };
+  if (b === 'spam_or_prank') return { className: 'bg-gray-200 text-gray-600', label: 'spam' };
+  return null;
+}
+
+function urgentBadge(p: string | null): { className: string; label: string } | null {
+  if (!p) return null;
+  if (p.startsWith('emergency')) return { className: 'bg-red-100 text-red-800', label: 'urgent' };
+  if (p === 'urgent_follow_up') return { className: 'bg-amber-100 text-amber-900', label: 'urgent' };
+  return null;
 }
 
 export default function ReceptionistDashboardPage() {
@@ -85,6 +132,11 @@ export default function ReceptionistDashboardPage() {
     callbackBookings: 0,
     quoteVisitBookings: 0,
     emergenciesFlagged: 0,
+    followUpNeeded: 0,
+    spamCalls: 0,
+    incompleteChecklist: 0,
+    urgentActionNeeded: 0,
+    abusiveButLegitimate: 0,
   });
   const [recentCalls, setRecentCalls] = useState<DashboardCall[]>([]);
   const [integration, setIntegration] = useState<IntegrationSummary | null>(null);
@@ -358,22 +410,27 @@ export default function ReceptionistDashboardPage() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-3">
             {[
               { label: 'Total calls', value: stats.totalCalls },
               { label: 'Active / mock', value: stats.activeCalls },
-              { label: 'Callbacks booked', value: stats.callbackBookings },
+              { label: 'Callbacks', value: stats.callbackBookings },
               { label: 'Quote visits', value: stats.quoteVisitBookings },
               { label: 'Emergencies', value: stats.emergenciesFlagged, warn: true },
+              { label: 'Urgent action', value: stats.urgentActionNeeded, warn: true },
+              { label: 'Follow-up', value: stats.followUpNeeded, note: true },
+              { label: 'Spam', value: stats.spamCalls },
+              { label: 'Abusive legit', value: stats.abusiveButLegitimate, note: true },
+              { label: 'Data gaps', value: stats.incompleteChecklist, note: true },
             ].map((s) => (
               <div
                 key={s.label}
-                className={`rounded-2xl p-5 border shadow-sm ${
-                  s.warn ? 'bg-red-50/80 border-red-100' : 'bg-white/80 border-white/30'
+                className={`rounded-2xl p-4 border shadow-sm ${
+                  s.warn ? 'bg-red-50/80 border-red-100' : s.note ? 'bg-amber-50/50 border-amber-100' : 'bg-white/80 border-white/30'
                 }`}
               >
-                <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">{s.label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1 flex items-center gap-2">
+                <p className="text-gray-500 text-[10px] font-medium uppercase tracking-wide leading-tight">{s.label}</p>
+                <p className="text-xl font-bold text-gray-900 mt-1 flex items-center gap-2">
                   {loading ? '…' : s.value}
                   {s.warn && Number(s.value) > 0 ? (
                     <AlertTriangle className="w-5 h-5 text-red-600" aria-hidden />
@@ -572,11 +629,34 @@ export default function ReceptionistDashboardPage() {
                           </td>
                           <td className="px-6 py-3 text-sm text-gray-600">{c.urgency || ex?.urgency || '—'}</td>
                           <td className="px-6 py-3">
-                            <span
-                              className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${dispositionBadge(c.disposition)}`}
-                            >
-                              {c.disposition || '—'}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span
+                                className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${dispositionBadge(c.disposition)}`}
+                              >
+                                {c.disposition || '—'}
+                              </span>
+                              {metaChecklistIncomplete(c.receptionist_meta_json ?? null) ? (
+                                <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-900">
+                                  gaps
+                                </span>
+                              ) : null}
+                              {(() => {
+                                const bb = behaviorBadge(metaCallerBehavior(c.receptionist_meta_json ?? null));
+                                return bb ? (
+                                  <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-medium ${bb.className}`}>
+                                    {bb.label}
+                                  </span>
+                                ) : null;
+                              })()}
+                              {(() => {
+                                const ub = urgentBadge(metaOperationalPriority(c.receptionist_meta_json ?? null));
+                                return ub && c.disposition !== 'emergency' ? (
+                                  <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-medium ${ub.className}`}>
+                                    {ub.label}
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
                           </td>
                           <td className="px-6 py-3 text-sm text-gray-500">
                             {new Date(c.started_at).toLocaleString()}

@@ -1,4 +1,5 @@
 import { sql } from '@/lib/db';
+import { normalizeVagueTimingPhrase } from '@/lib/receptionist/hardening/timing';
 import type { ExtractedCallData } from '@/lib/receptionist/types';
 
 async function getOrCreateCompanyId(explicit?: string | null) {
@@ -179,10 +180,21 @@ export async function getCompanyIdForReceptionist() {
 export function suggestScheduleForBooking(
   bookingType: 'callback' | 'quote_visit',
   extracted: ExtractedCallData,
+  timeZone = 'America/Toronto',
 ) {
+  const windowText =
+    bookingType === 'callback'
+      ? extracted.preferredCallbackWindow || ''
+      : extracted.preferredVisitWindow || extracted.preferredCallbackWindow || '';
+  const hint = normalizeVagueTimingPhrase(windowText || 'tomorrow morning', timeZone);
   const text = `${extracted.preferredCallbackWindow || ''} ${extracted.preferredVisitWindow || ''}`.toLowerCase();
   let scheduledDate = addDaysYmd(1);
   let scheduledTime = bookingType === 'callback' ? '09:00' : '10:00';
+
+  if (hint.localWindowLabel) {
+    const m = hint.localWindowLabel.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) scheduledDate = m[1];
+  }
 
   if (text.includes('tomorrow')) {
     scheduledDate = addDaysYmd(1);
@@ -191,14 +203,17 @@ export function suggestScheduleForBooking(
     scheduledDate = addDaysYmd(7);
   }
   if (text.includes('friday')) {
-    /* keep simple: next Friday-ish */
     scheduledDate = addDaysYmd(5);
   }
-  if (text.includes('afternoon')) {
+  if (text.includes('afternoon') || hint.summary.toLowerCase().includes('afternoon')) {
     scheduledTime = '14:00';
   }
-  if (text.includes('morning')) {
+  if (text.includes('morning') || hint.summary.toLowerCase().includes('morning')) {
     scheduledTime = '09:00';
+  }
+  if (hint.kind === 'asap_urgent') {
+    scheduledDate = addDaysYmd(0);
+    scheduledTime = bookingType === 'callback' ? '10:00' : '11:00';
   }
 
   return { scheduledDate, scheduledTime };

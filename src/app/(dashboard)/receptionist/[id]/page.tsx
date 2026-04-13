@@ -144,6 +144,18 @@ export default function ReceptionistCallDetailPage() {
   const disposition = call.disposition as string | null;
   const isEmergency = disposition === 'emergency';
 
+  let callMeta: Record<string, unknown> | null = null;
+  try {
+    callMeta = call.receptionist_meta_json
+      ? (JSON.parse(call.receptionist_meta_json as string) as Record<string, unknown>)
+      : null;
+  } catch {
+    callMeta = null;
+  }
+  const completeness = callMeta?.completeness as
+    | { sufficient?: boolean; missingLabels?: string[]; items?: { key: string; ok: boolean; detail?: string }[] }
+    | undefined;
+
   return (
     <div className="flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
       <main className="flex-1 overflow-auto">
@@ -212,9 +224,162 @@ export default function ReceptionistCallDetailPage() {
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-3 text-red-900">
               <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
               <div>
-                <p className="font-semibold">Emergency flagged</p>
+                <p className="font-semibold">
+                  {callMeta?.operationalPriority === 'emergency_callback_required'
+                    ? 'Urgent callback needed'
+                    : callMeta?.operationalPriority === 'emergency_incomplete_but_urgent'
+                      ? 'Emergency reported; details incomplete — urgent human action required'
+                      : 'Emergency flagged'}
+                </p>
                 <p className="text-sm text-red-800">Prioritize on-call dispatch and confirm safety (gas/water).</p>
+                {Array.isArray(callMeta?.emergencyRationale) && (callMeta?.emergencyRationale as string[]).length ? (
+                  <p className="text-xs text-red-800/90 mt-2">
+                    Signals: {(callMeta.emergencyRationale as string[]).slice(0, 6).join(' · ')}
+                  </p>
+                ) : null}
               </div>
+            </div>
+          ) : null}
+
+          {callMeta?.callerBehavior === 'abusive_but_legitimate' ? (
+            <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3 text-orange-900">
+              <Ban className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
+              <div>
+                <p className="font-semibold">Abusive caller, legitimate plumbing issue</p>
+                <p className="text-sm text-orange-800">
+                  {String(callMeta.behaviorRationale || 'Off-topic/profane language occurred, but a legitimate plumbing issue was identified')}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {callMeta ? (
+            <div className="rounded-2xl border border-gray-200 bg-white/90 shadow-sm p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900">Call quality &amp; safety</h2>
+
+              {/* Operational priority */}
+              <div>
+                <p className="text-sm font-medium text-gray-800 mb-1">Operational priority</p>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {callMeta.operationalPriority ? (
+                    <span className={`px-2 py-1 rounded-full font-semibold ${
+                      String(callMeta.operationalPriority).startsWith('emergency') ? 'bg-red-100 text-red-800' :
+                      callMeta.operationalPriority === 'urgent_follow_up' ? 'bg-amber-100 text-amber-900' :
+                      callMeta.operationalPriority === 'spam_no_action' ? 'bg-gray-100 text-gray-600' :
+                      'bg-slate-100 text-slate-800'
+                    }`}>
+                      {String(callMeta.operationalPriority).replace(/_/g, ' ')}
+                    </span>
+                  ) : null}
+                  {callMeta.emergencyTier ? (
+                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-800">
+                      Tier: {String(callMeta.emergencyTier)}
+                    </span>
+                  ) : null}
+                  {callMeta.callerBehavior ? (
+                    <span className={`px-2 py-1 rounded-full ${
+                      callMeta.callerBehavior === 'abusive_but_legitimate' ? 'bg-orange-100 text-orange-800' :
+                      callMeta.callerBehavior === 'spam_or_prank' ? 'bg-gray-200 text-gray-700' :
+                      callMeta.callerBehavior === 'emergency_legitimate' ? 'bg-red-50 text-red-800' :
+                      'bg-slate-100 text-slate-800'
+                    }`}>
+                      {String(callMeta.callerBehavior).replace(/_/g, ' ')}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                {callMeta.internalOutcome ? (
+                  <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-900">
+                    Outcome: {String(callMeta.internalOutcome).replace(/_/g, ' ')}
+                  </span>
+                ) : null}
+                {callMeta.issueSuspicious ? (
+                  <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-900">Transcript ambiguity</span>
+                ) : null}
+                {callMeta.afterHours && typeof callMeta.afterHours === 'object' ? (
+                  <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-800">
+                    After hours: {(callMeta.afterHours as { active?: boolean }).active ? 'yes' : 'no'}
+                  </span>
+                ) : null}
+              </div>
+
+              {/* Data completeness — separate from operational priority */}
+              {completeness ? (
+                <div>
+                  <p className="text-sm font-medium text-gray-800 mb-2">
+                    Data completeness{' '}
+                    <span className={completeness.sufficient ? 'text-emerald-600' : 'text-amber-700'}>
+                      {completeness.sufficient ? '(complete)' : '(gaps)'}
+                    </span>
+                    {isEmergency && !completeness.sufficient ? (
+                      <span className="text-xs text-red-700 ml-2">(emergency preserved despite gaps)</span>
+                    ) : null}
+                  </p>
+                  {!completeness.sufficient && Array.isArray(completeness.missingLabels) ? (
+                    <ul className="text-sm text-amber-900 list-disc pl-5 space-y-0.5">
+                      {completeness.missingLabels.map((m) => (
+                        <li key={m}>{m}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {Array.isArray(completeness.items) ? (
+                    <ul className="mt-3 space-y-1 text-xs text-gray-600 max-h-40 overflow-y-auto">
+                      {completeness.items.map((it) => (
+                        <li key={it.key} className={it.ok ? '' : 'text-amber-800'}>
+                          {it.ok ? '✓' : '✗'} {it.key}
+                          {it.detail ? ` — ${it.detail}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* Field confidence / provenance */}
+              {callMeta.fieldConfidence && typeof callMeta.fieldConfidence === 'object' ? (
+                <div>
+                  <p className="text-sm font-medium text-gray-800 mb-1">Field confidence</p>
+                  <ul className="space-y-0.5 text-xs text-gray-600">
+                    {Object.entries(callMeta.fieldConfidence as Record<string, { confidence?: string; provenance?: string }>).map(([k, v]) => (
+                      <li key={k} className={v?.confidence === 'missing' ? 'text-amber-800' : v?.confidence === 'weak' ? 'text-yellow-700' : ''}>
+                        <span className="font-medium">{k}</span>: {v?.confidence || '?'}{v?.provenance ? ` (${v.provenance.replace(/_/g, ' ')})` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {Array.isArray(callMeta.incompleteReasons) && (callMeta.incompleteReasons as string[]).length ? (
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Incomplete / abandoned signals</p>
+                  <p className="text-sm text-gray-600">{(callMeta.incompleteReasons as string[]).join(' · ')}</p>
+                </div>
+              ) : null}
+              {callMeta.issueRaw || callMeta.issueNormalized ? (
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium text-gray-900">Issue text:</span> raw {String(callMeta.issueRaw || '—')}
+                  {callMeta.issueNormalized ? (
+                    <span className="block mt-1">
+                      Normalized: <span className="font-medium">{String(callMeta.issueNormalized)}</span> (
+                      {String(callMeta.issueNormalizationSource || 'n/a')})
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {Array.isArray(callMeta.duplicateNotes) && (callMeta.duplicateNotes as string[]).length ? (
+                <p className="text-xs text-gray-500">
+                  Duplicate hints: {(callMeta.duplicateNotes as string[]).join(' · ')}
+                </p>
+              ) : null}
+              {callMeta.lastToolError && typeof callMeta.lastToolError === 'object' ? (
+                <p className="text-xs text-red-700">
+                  Last tool issue:{' '}
+                  {JSON.stringify(callMeta.lastToolError).slice(0, 280)}
+                  {(JSON.stringify(callMeta.lastToolError).length > 280 ? '…' : '')}
+                </p>
+              ) : null}
             </div>
           ) : null}
 

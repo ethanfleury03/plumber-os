@@ -11,7 +11,14 @@ import {
   getCompanyIdForReceptionist,
   linkReceptionistCallToCallLog,
 } from '@/lib/receptionist/integrations';
-import type { ReceptionistDisposition, ReceptionistSettingsRow } from '@/lib/receptionist/types';
+import { logReceptionistHardening, synthesizeReceptionistCallMeta } from '@/lib/receptionist/hardening';
+import { mergeReceptionistMeta } from '@/lib/receptionist/hardening/merge-meta';
+import type { ReceptionistCallMeta } from '@/lib/receptionist/hardening/types';
+import type {
+  ExtractedCallData,
+  ReceptionistDisposition,
+  ReceptionistSettingsRow,
+} from '@/lib/receptionist/types';
 
 export async function syncMockScenariosToDb() {
   for (let i = 0; i < MOCK_SCENARIOS.length; i++) {
@@ -76,7 +83,7 @@ export async function ensureReceptionistSettings(): Promise<ReceptionistSettings
       'message_and_callback',
       ${JSON.stringify(['callback', 'quote_visit', 'lead', 'emergency'])},
       ${JSON.stringify(['burst pipe', 'flooding', 'sewer backup', 'gas smell'])},
-      ${JSON.stringify({ minNoticeHours: 4 })},
+      ${JSON.stringify({ minNoticeHours: 4, duplicateWindowMinutes: 120, timezone: 'America/Toronto', spamKeywords: [] })},
       ${JSON.stringify({ defaultDisposition: 'follow_up_needed' })},
       'mock',
       ${JSON.stringify({ note: 'Non-secret provider options only' })},
@@ -360,24 +367,58 @@ export async function finalizeReceptionistCall(callId: string) {
   const transcript = (call.transcript_text as string) || '';
   const keywords = parseEmergencyKeywordsJson(settings.emergency_keywords_json);
   const extracted = extractCallFieldsFromTranscript(transcript, scenario, keywords);
-  const disposition = decideDisposition(extracted, scenario);
-  const recommended = dispositionToRecommendedStep(disposition, extracted);
+  let disposition = decideDisposition(extracted, scenario);
 
   const started = call.started_at ? new Date(call.started_at as string).getTime() : Date.now();
   const durationSeconds = Math.max(0, Math.round((Date.now() - started) / 1000));
 
+  const bookings =
+    (await sql`SELECT booking_type, status FROM receptionist_bookings WHERE call_id = ${callId}`) as {
+      booking_type: string;
+      status: string;
+    }[];
+  const toolInvocations =
+    (await sql`SELECT tool_name, status FROM receptionist_tool_invocations WHERE call_id = ${callId}`) as {
+      tool_name: string;
+      status: string;
+    }[];
+  const events =
+    (await sql`SELECT event_type FROM receptionist_events WHERE call_id = ${callId}`) as { event_type: string }[];
+
+  const syn = synthesizeReceptionistCallMeta({
+    callRow: call,
+    extracted,
+    disposition,
+    bookings,
+    toolInvocations,
+    events,
+    settings,
+    durationSeconds,
+  });
+  if (syn.completenessDowngraded) {
+    logReceptionistHardening('completeness_downgrade', {
+      callId,
+      fromDisposition: disposition,
+      toDisposition: syn.adjustedDisposition,
+    });
+  }
+  disposition = syn.adjustedDisposition;
+  const finalExtracted = syn.adjustedExtracted;
+  const recommended = dispositionToRecommendedStep(disposition, finalExtracted);
+
   await sql`
     UPDATE receptionist_calls SET
-      caller_name = ${extracted.callerName},
-      from_phone = COALESCE(${extracted.phone}, from_phone),
-      extracted_json = ${JSON.stringify(extracted)},
-      ai_summary = ${extracted.summary},
+      caller_name = ${finalExtracted.callerName},
+      from_phone = COALESCE(${finalExtracted.phone}, from_phone),
+      extracted_json = ${JSON.stringify(finalExtracted)},
+      ai_summary = ${finalExtracted.summary},
       recommended_next_step = ${recommended},
       disposition = ${disposition},
-      urgency = ${extracted.urgency},
+      urgency = ${finalExtracted.urgency},
       status = 'completed',
       ended_at = datetime('now'),
       duration_seconds = ${durationSeconds},
+      receptionist_meta_json = ${syn.mergedMetaJson},
       updated_at = datetime('now')
     WHERE id = ${callId}
   `;
@@ -394,11 +435,11 @@ export async function finalizeReceptionistCall(callId: string) {
     const transcriptFull = (finalRow.transcript_text as string) || '';
     const callLogId = await createCallLogForReceptionistCall({
       companyId,
-      customerName: extracted.callerName,
-      phoneNumber: (extracted.phone as string) || (finalRow.from_phone as string) || 'unknown',
+      customerName: finalExtracted.callerName,
+      phoneNumber: (finalExtracted.phone as string) || (finalRow.from_phone as string) || 'unknown',
       durationSeconds,
       transcript: transcriptFull,
-      aiSummary: extracted.summary,
+      aiSummary: finalExtracted.summary,
       outcome: mapDispositionToCallOutcome(disposition),
       leadId: (finalRow.lead_id as string) || null,
       jobId: (finalRow.job_id as string) || null,
@@ -440,16 +481,52 @@ export async function reprocessReceptionistCall(callId: string) {
   const transcript = (call.transcript_text as string) || '';
   const keywords = parseEmergencyKeywordsJson(settings.emergency_keywords_json);
   const extracted = extractCallFieldsFromTranscript(transcript, scenario, keywords);
-  const disposition = decideDisposition(extracted, scenario);
-  const recommended = dispositionToRecommendedStep(disposition, extracted);
+  let disposition = decideDisposition(extracted, scenario);
+
+  const bookings =
+    (await sql`SELECT booking_type, status FROM receptionist_bookings WHERE call_id = ${callId}`) as {
+      booking_type: string;
+      status: string;
+    }[];
+  const toolInvocations =
+    (await sql`SELECT tool_name, status FROM receptionist_tool_invocations WHERE call_id = ${callId}`) as {
+      tool_name: string;
+      status: string;
+    }[];
+  const events =
+    (await sql`SELECT event_type FROM receptionist_events WHERE call_id = ${callId}`) as { event_type: string }[];
+
+  const syn = synthesizeReceptionistCallMeta({
+    callRow: call,
+    extracted,
+    disposition,
+    bookings,
+    toolInvocations,
+    events,
+    settings,
+    durationSeconds: Number(call.duration_seconds || 0),
+  });
+  if (syn.completenessDowngraded) {
+    logReceptionistHardening('completeness_downgrade', {
+      callId,
+      fromDisposition: disposition,
+      toDisposition: syn.adjustedDisposition,
+    });
+  }
+  disposition = syn.adjustedDisposition;
+  const reExtracted = syn.adjustedExtracted;
+  const recommended = dispositionToRecommendedStep(disposition, reExtracted);
 
   await sql`
     UPDATE receptionist_calls SET
-      extracted_json = ${JSON.stringify(extracted)},
-      ai_summary = ${extracted.summary},
+      caller_name = ${reExtracted.callerName},
+      from_phone = COALESCE(${reExtracted.phone}, from_phone),
+      extracted_json = ${JSON.stringify(reExtracted)},
+      ai_summary = ${reExtracted.summary},
       recommended_next_step = ${recommended},
       disposition = ${disposition},
-      urgency = ${extracted.urgency},
+      urgency = ${reExtracted.urgency},
+      receptionist_meta_json = ${syn.mergedMetaJson},
       updated_at = datetime('now')
     WHERE id = ${callId}
   `;
@@ -460,10 +537,10 @@ export async function reprocessReceptionistCall(callId: string) {
     await sql`
       UPDATE call_logs SET
         transcript = ${transcript},
-        ai_summary = ${extracted.summary},
+        ai_summary = ${reExtracted.summary},
         outcome = ${mapDispositionToCallOutcome(disposition)},
-        customer_name = ${extracted.callerName},
-        phone_number = COALESCE(${extracted.phone}, phone_number),
+        customer_name = ${reExtracted.callerName},
+        phone_number = COALESCE(${reExtracted.phone}, phone_number),
         updated_at = datetime('now')
       WHERE id = ${call.call_log_id}
     `;
@@ -526,6 +603,28 @@ export async function getDashboardStats() {
   const emRow = await sql`
     SELECT COUNT(*) as c FROM receptionist_calls WHERE disposition = 'emergency'
   `;
+  const fuRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls WHERE disposition = 'follow_up_needed'
+  `;
+  const spamRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls WHERE disposition = 'spam'
+  `;
+  const incompleteRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls
+    WHERE receptionist_meta_json IS NOT NULL
+      AND json_extract(receptionist_meta_json, '$.completeness.sufficient') = 0
+  `;
+
+  const urgentRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls
+    WHERE receptionist_meta_json IS NOT NULL
+      AND json_extract(receptionist_meta_json, '$.operationalPriority') IN ('emergency_callback_required','emergency_dispatch_review','emergency_incomplete_but_urgent')
+  `;
+  const abusiveRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls
+    WHERE receptionist_meta_json IS NOT NULL
+      AND json_extract(receptionist_meta_json, '$.callerBehavior') = 'abusive_but_legitimate'
+  `;
 
   return {
     totalCalls: Number(totalRow[0]?.c || 0),
@@ -533,7 +632,112 @@ export async function getDashboardStats() {
     callbackBookings: Number(cbRow[0]?.c || 0),
     quoteVisitBookings: Number(qvRow[0]?.c || 0),
     emergenciesFlagged: Number(emRow[0]?.c || 0),
+    followUpNeeded: Number(fuRow[0]?.c || 0),
+    spamCalls: Number(spamRow[0]?.c || 0),
+    incompleteChecklist: Number(incompleteRow[0]?.c || 0),
+    urgentActionNeeded: Number(urgentRow[0]?.c || 0),
+    abusiveButLegitimate: Number(abusiveRow[0]?.c || 0),
   };
+}
+
+export async function mergeReceptionistMetaPartial(callId: string, patch: Partial<ReceptionistCallMeta>) {
+  const rows = await sql`SELECT receptionist_meta_json FROM receptionist_calls WHERE id = ${callId}`;
+  if (!rows.length) return;
+  const next = mergeReceptionistMeta(rows[0].receptionist_meta_json as string | undefined, patch);
+  await sql`
+    UPDATE receptionist_calls SET receptionist_meta_json = ${next}, updated_at = datetime('now') WHERE id = ${callId}
+  `;
+}
+
+export async function persistReceptionistHardeningForCall(callId: string) {
+  const settings = await ensureReceptionistSettings();
+  const call = (await sql`SELECT * FROM receptionist_calls WHERE id = ${callId}`)[0] as
+    | Record<string, unknown>
+    | undefined;
+  if (!call) return;
+  let extracted: ExtractedCallData;
+  try {
+    extracted = JSON.parse((call.extracted_json as string) || '{}') as ExtractedCallData;
+  } catch {
+    return;
+  }
+  const disposition = call.disposition as ReceptionistDisposition;
+  const bookings =
+    (await sql`SELECT booking_type, status FROM receptionist_bookings WHERE call_id = ${callId}`) as {
+      booking_type: string;
+      status: string;
+    }[];
+  const toolInvocations =
+    (await sql`SELECT tool_name, status FROM receptionist_tool_invocations WHERE call_id = ${callId}`) as {
+      tool_name: string;
+      status: string;
+    }[];
+  const events =
+    (await sql`SELECT event_type FROM receptionist_events WHERE call_id = ${callId}`) as { event_type: string }[];
+
+  const syn = synthesizeReceptionistCallMeta({
+    callRow: call,
+    extracted,
+    disposition,
+    bookings,
+    toolInvocations,
+    events,
+    settings,
+    durationSeconds: Number(call.duration_seconds || 0),
+  });
+  if (syn.completenessDowngraded) {
+    logReceptionistHardening('completeness_downgrade', {
+      callId,
+      fromDisposition: disposition,
+      toDisposition: syn.adjustedDisposition,
+    });
+  }
+  const hardenedExtracted = syn.adjustedExtracted;
+  const recommended = dispositionToRecommendedStep(syn.adjustedDisposition, hardenedExtracted);
+  await sql`
+    UPDATE receptionist_calls SET
+      caller_name = COALESCE(${hardenedExtracted.callerName}, caller_name),
+      from_phone = COALESCE(${hardenedExtracted.phone}, from_phone),
+      extracted_json = ${JSON.stringify(hardenedExtracted)},
+      disposition = ${syn.adjustedDisposition},
+      urgency = ${hardenedExtracted.urgency},
+      receptionist_meta_json = ${syn.mergedMetaJson},
+      recommended_next_step = ${recommended},
+      updated_at = datetime('now')
+    WHERE id = ${callId}
+  `;
+}
+
+/** Duplicate booking on same call row (idempotent tool retries). */
+export async function findActiveBookingOnCall(callId: string, bookingType: string) {
+  const rows = await sql`
+    SELECT id, job_id, status FROM receptionist_bookings
+    WHERE call_id = ${callId} AND booking_type = ${bookingType}
+      AND status IN ('scheduled', 'requested')
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  return rows[0] as { id: string; job_id: string | null; status: string } | undefined;
+}
+
+/** Cross-call duplicate heuristic: same phone + booking type in recent window. */
+export async function findRecentDuplicateBooking(params: {
+  excludeCallId: string;
+  phone: string;
+  bookingType: string;
+  windowMinutes: number;
+}) {
+  const mod = `-${params.windowMinutes} minutes`;
+  const rows = await sql`
+    SELECT b.id, b.call_id FROM receptionist_bookings b
+    INNER JOIN receptionist_calls c ON c.id = b.call_id
+    WHERE b.booking_type = ${params.bookingType}
+      AND b.status IN ('scheduled', 'requested')
+      AND c.from_phone = ${params.phone}
+      AND b.call_id != ${params.excludeCallId}
+      AND datetime(b.created_at) > datetime('now', ${mod})
+    ORDER BY b.created_at DESC LIMIT 3
+  `;
+  return rows as { id: string; call_id: string }[];
 }
 
 export async function listMockScenariosFromDb() {
@@ -576,6 +780,129 @@ export async function findReceptionistCallByRetellCallId(retellCallId: string) {
     SELECT * FROM receptionist_calls WHERE provider_call_id = ${retellCallId} LIMIT 1
   `;
   return rows[0] as Record<string, unknown> | undefined;
+}
+
+function strFromRetellCall(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    return t || null;
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return null;
+}
+
+function pickRetellWebhookPhones(call: Record<string, unknown>): { from: string | null; to: string | null } {
+  const from =
+    strFromRetellCall(call.from_number) ||
+    strFromRetellCall(call.customer_number) ||
+    strFromRetellCall(call.customer_phone) ||
+    strFromRetellCall(call.from) ||
+    null;
+  const to =
+    strFromRetellCall(call.to_number) ||
+    strFromRetellCall(call.agent_number) ||
+    strFromRetellCall(call.to) ||
+    null;
+  return { from, to };
+}
+
+/**
+ * Retell browser / web test: no Twilio row exists. First webhook carries `call.call_id` — we persist it as
+ * `provider_call_id` so tools (even with null call_id in JSON) can resolve via time-window fallback, and
+ * phone tools can resolve once this row exists.
+ */
+export async function ensureReceptionistCallForRetellBrowserSession(
+  retellCallId: string,
+  call: Record<string, unknown>,
+): Promise<{ id: string; created: boolean }> {
+  const existing = await findReceptionistCallByRetellCallId(retellCallId);
+  if (existing) return { id: existing.id as string, created: false };
+
+  const agentId = strFromRetellCall(call.agent_id) || strFromRetellCall(call.agentId);
+  const { from, to } = pickRetellWebhookPhones(call);
+  const callStatus = strFromRetellCall(call.call_status);
+  const liveStatuses = new Set(['ongoing', 'registered', 'not_connected']);
+  const appStatus =
+    callStatus && liveStatuses.has(callStatus.toLowerCase()) ? 'active' : 'active';
+
+  try {
+    const rows = await sql`
+      INSERT INTO receptionist_calls (
+        provider,
+        provider_call_id,
+        provider_agent_id,
+        direction,
+        from_phone,
+        to_phone,
+        status,
+        mock_scenario_id,
+        current_transcript_index,
+        raw_provider_payload_json,
+        provider_status
+      )
+      VALUES (
+        'retell',
+        ${retellCallId},
+        ${agentId},
+        'inbound',
+        ${from},
+        ${to},
+        ${appStatus},
+        NULL,
+        0,
+        ${JSON.stringify(call)},
+        ${callStatus}
+      )
+      RETURNING id
+    `;
+    return { id: rows[0].id as string, created: true };
+  } catch (e) {
+    const again = await findReceptionistCallByRetellCallId(retellCallId);
+    if (again) return { id: again.id as string, created: false };
+    throw e;
+  }
+}
+
+/**
+ * When Retell tools omit call_id (browser test), bind to the lone in-memory Retell session:
+ * provider=retell, no Twilio SID, active/ringing, within a recent window — only if exactly one match.
+ */
+export async function findRetellBrowserToolFallbackCallId(): Promise<{ id: string; reason: string } | null> {
+  const windows = [3, 15, 60] as const;
+  for (const minutes of windows) {
+    const mod = `-${minutes} minutes`;
+    const rows = await sql`
+      SELECT id FROM receptionist_calls
+      WHERE provider = ${'retell'}
+        AND (twilio_call_sid IS NULL OR twilio_call_sid = '')
+        AND status IN ('active', 'ringing', 'completed')
+        AND datetime(updated_at) > datetime('now', ${mod})
+      ORDER BY updated_at DESC
+    `;
+    if (rows.length === 1) {
+      return {
+        id: rows[0].id as string,
+        reason: `fallback_unique_retell_browser_no_twilio_within_${minutes}m`,
+      };
+    }
+  }
+
+  const globalRows = await sql`
+    SELECT id FROM receptionist_calls
+    WHERE provider = ${'retell'}
+      AND (twilio_call_sid IS NULL OR twilio_call_sid = '')
+      AND status IN ('active', 'ringing', 'completed')
+    ORDER BY updated_at DESC
+  `;
+  if (globalRows.length === 1) {
+    return {
+      id: globalRows[0].id as string,
+      reason: 'fallback_globally_unique_retell_browser_no_twilio_active',
+    };
+  }
+
+  return null;
 }
 
 export async function insertReceptionistToolInvocation(params: {

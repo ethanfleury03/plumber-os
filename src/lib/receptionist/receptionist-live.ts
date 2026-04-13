@@ -4,10 +4,12 @@ import { sql } from '@/lib/db';
 import {
   attachRetellRegistrationToCall,
   createInboundRetellCallRow,
+  ensureReceptionistCallForRetellBrowserSession,
   ensureReceptionistSettings,
   findReceptionistCallByRetellCallId,
   findReceptionistCallByTwilioSid,
   logReceptionistEvent,
+  persistReceptionistHardeningForCall,
 } from '@/lib/receptionist/repository';
 import {
   createCallLogForReceptionistCall,
@@ -228,9 +230,15 @@ export async function handleRetellWebhook(rawBody: string, signature: string | n
   }
 
   const retellCallId = call.call_id as string;
-  const plumberId = await resolvePlumberCallIdForRetell(retellCallId, call);
+  let plumberId = await resolvePlumberCallIdForRetell(retellCallId, call);
   if (!plumberId) {
-    return { ok: true, status: 204 };
+    const ensured = await ensureReceptionistCallForRetellBrowserSession(retellCallId, call);
+    plumberId = ensured.id;
+    if (ensured.created) {
+      console.info(
+        `[retell-webhook] ensured receptionist_calls row: Retell correlation key call.call_id=${retellCallId} -> PlumberOS id=${plumberId} (stored as provider_call_id). Twilio inbound path unchanged.`,
+      );
+    }
   }
 
   await logReceptionistEvent(plumberId, `retell_${event || 'unknown'}`, body, 'retell');
@@ -359,7 +367,10 @@ async function finalizeLiveRetellCall(plumberCallId: string, call: Record<string
     WHERE id = ${plumberCallId}
   `;
 
-  await ensureCallLogForLiveCall(plumberCallId, extracted, transcript, disposition, durationSeconds);
+  await persistReceptionistHardeningForCall(plumberCallId);
+  const dispRow = await sql`SELECT disposition FROM receptionist_calls WHERE id = ${plumberCallId}`;
+  const finalDisposition = (dispRow[0]?.disposition as ReceptionistDisposition) || disposition;
+  await ensureCallLogForLiveCall(plumberCallId, extracted, transcript, finalDisposition, durationSeconds);
 }
 
 async function getTranscriptFromDb(plumberCallId: string) {

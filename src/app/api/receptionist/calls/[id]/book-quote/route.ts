@@ -10,7 +10,7 @@ export async function POST(
 ) {
   const { id } = await params;
   try {
-    const result = await receptionistService.bookQuoteVisitFromCall(id);
+    const result = await receptionistService.bookQuoteVisitFromCall(id, { skipAddressGuard: true });
     return NextResponse.json(result);
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

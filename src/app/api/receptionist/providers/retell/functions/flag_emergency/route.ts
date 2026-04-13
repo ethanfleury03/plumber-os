@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     return NextResponse.json(toolJsonError('Unauthorized', 'unauthorized'), { status: 401 });
   }
   const body = await readRetellToolJson(request, 'flag_emergency');
-  const callId = await resolvePlumberCallIdFromToolBody(body);
+  const callId = await resolvePlumberCallIdFromToolBody(body, 'flag_emergency');
   if (!callId) {
     return NextResponse.json(toolJsonError(unknownRetellCallMessage(body), 'bad_request'), { status: 400 });
   }
