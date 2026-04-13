@@ -27,7 +27,14 @@ export async function POST(request: Request) {
     await mergeExtractedOntoCall(callId, partialExtractedFromToolArgs(body));
     const out = await receptionistService.createLeadFromCall(callId);
     await auditTool(callId, 'create_lead', body, out, 'ok');
-    return NextResponse.json(toolJsonOk({ leadId: out.leadId, alreadyLinked: out.alreadyLinked }));
+    return NextResponse.json(
+      toolJsonOk({
+        leadId: out.leadId,
+        alreadyLinked: out.alreadyLinked,
+        ...(('crossCallMerged' in out && out.crossCallMerged) ? { crossCallMerged: true } : {}),
+        ...(('idempotentReplay' in out && out.idempotentReplay) ? { idempotentReplay: true } : {}),
+      }),
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'error';
     await auditTool(callId, 'create_lead', body, { error: msg }, 'error');

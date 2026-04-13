@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3001",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:init": "node scripts/init-sqlite.cjs",
     "retell:setup": "tsx scripts/setup-retell-agent.ts",
-    "retell:write-docs": "tsx scripts/write-retell-docs.ts"
+    "retell:write-docs": "tsx scripts/write-retell-docs.ts",
+    "receptionist:eval": "vitest run src/lib/receptionist/eval"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.38.2",

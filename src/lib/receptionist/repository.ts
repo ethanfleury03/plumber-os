@@ -14,6 +14,8 @@ import {
 import { logReceptionistHardening, synthesizeReceptionistCallMeta } from '@/lib/receptionist/hardening';
 import { mergeReceptionistMeta } from '@/lib/receptionist/hardening/merge-meta';
 import type { ReceptionistCallMeta } from '@/lib/receptionist/hardening/types';
+import { enrichReceptionistMetaAfterSynthesis } from '@/lib/receptionist/enrich-receptionist-meta';
+import { listStaffTasksForCall, countOpenUrgentStaffTasks } from '@/lib/receptionist/staff-handoff';
 import type {
   ExtractedCallData,
   ReceptionistDisposition,
@@ -406,6 +408,18 @@ export async function finalizeReceptionistCall(callId: string) {
   const finalExtracted = syn.adjustedExtracted;
   const recommended = dispositionToRecommendedStep(disposition, finalExtracted);
 
+  const companyIdForMeta = await getCompanyIdForReceptionist();
+  const enrichedMetaJson = await enrichReceptionistMetaAfterSynthesis({
+    companyId: companyIdForMeta,
+    callId,
+    callRow: { ...call, recommended_next_step: recommended },
+    extracted: finalExtracted,
+    disposition,
+    mergedMetaJson: syn.mergedMetaJson,
+    toolInvocations,
+    events,
+  });
+
   await sql`
     UPDATE receptionist_calls SET
       caller_name = ${finalExtracted.callerName},
@@ -418,7 +432,7 @@ export async function finalizeReceptionistCall(callId: string) {
       status = 'completed',
       ended_at = datetime('now'),
       duration_seconds = ${durationSeconds},
-      receptionist_meta_json = ${syn.mergedMetaJson},
+      receptionist_meta_json = ${enrichedMetaJson},
       updated_at = datetime('now')
     WHERE id = ${callId}
   `;
@@ -517,6 +531,18 @@ export async function reprocessReceptionistCall(callId: string) {
   const reExtracted = syn.adjustedExtracted;
   const recommended = dispositionToRecommendedStep(disposition, reExtracted);
 
+  const companyIdRe = await getCompanyIdForReceptionist();
+  const enrichedReprocess = await enrichReceptionistMetaAfterSynthesis({
+    companyId: companyIdRe,
+    callId,
+    callRow: { ...call, recommended_next_step: recommended },
+    extracted: reExtracted,
+    disposition,
+    mergedMetaJson: syn.mergedMetaJson,
+    toolInvocations,
+    events,
+  });
+
   await sql`
     UPDATE receptionist_calls SET
       caller_name = ${reExtracted.callerName},
@@ -526,7 +552,7 @@ export async function reprocessReceptionistCall(callId: string) {
       recommended_next_step = ${recommended},
       disposition = ${disposition},
       urgency = ${reExtracted.urgency},
-      receptionist_meta_json = ${syn.mergedMetaJson},
+      receptionist_meta_json = ${enrichedReprocess},
       updated_at = datetime('now')
     WHERE id = ${callId}
   `;
@@ -584,7 +610,8 @@ export async function getReceptionistCallDetail(callId: string) {
   const toolInvocations = await sql`
     SELECT * FROM receptionist_tool_invocations WHERE call_id = ${callId} ORDER BY created_at ASC
   `;
-  return { call: calls[0], segments, events, bookings, toolInvocations };
+  const staffTasks = await listStaffTasksForCall(callId);
+  return { call: calls[0], segments, events, bookings, toolInvocations, staffTasks };
 }
 
 export async function getDashboardStats() {
@@ -625,6 +652,12 @@ export async function getDashboardStats() {
     WHERE receptionist_meta_json IS NOT NULL
       AND json_extract(receptionist_meta_json, '$.callerBehavior') = 'abusive_but_legitimate'
   `;
+  const dupMergedRow = await sql`
+    SELECT COUNT(*) as c FROM receptionist_calls
+    WHERE receptionist_meta_json IS NOT NULL
+      AND json_extract(receptionist_meta_json, '$.duplicateResolution.outcome') = 'cross_call_merged'
+  `;
+  const openUrgentTasks = await countOpenUrgentStaffTasks();
 
   return {
     totalCalls: Number(totalRow[0]?.c || 0),
@@ -637,6 +670,8 @@ export async function getDashboardStats() {
     incompleteChecklist: Number(incompleteRow[0]?.c || 0),
     urgentActionNeeded: Number(urgentRow[0]?.c || 0),
     abusiveButLegitimate: Number(abusiveRow[0]?.c || 0),
+    crossCallDuplicatesMerged: Number(dupMergedRow[0]?.c || 0),
+    openUrgentStaffTasks: openUrgentTasks,
   };
 }
 
@@ -694,6 +729,19 @@ export async function persistReceptionistHardeningForCall(callId: string) {
   }
   const hardenedExtracted = syn.adjustedExtracted;
   const recommended = dispositionToRecommendedStep(syn.adjustedDisposition, hardenedExtracted);
+
+  const companyIdPh = await getCompanyIdForReceptionist();
+  const enrichedPersist = await enrichReceptionistMetaAfterSynthesis({
+    companyId: companyIdPh,
+    callId,
+    callRow: { ...call, recommended_next_step: recommended },
+    extracted: hardenedExtracted,
+    disposition: syn.adjustedDisposition,
+    mergedMetaJson: syn.mergedMetaJson,
+    toolInvocations,
+    events,
+  });
+
   await sql`
     UPDATE receptionist_calls SET
       caller_name = COALESCE(${hardenedExtracted.callerName}, caller_name),
@@ -701,7 +749,7 @@ export async function persistReceptionistHardeningForCall(callId: string) {
       extracted_json = ${JSON.stringify(hardenedExtracted)},
       disposition = ${syn.adjustedDisposition},
       urgency = ${hardenedExtracted.urgency},
-      receptionist_meta_json = ${syn.mergedMetaJson},
+      receptionist_meta_json = ${enrichedPersist},
       recommended_next_step = ${recommended},
       updated_at = datetime('now')
     WHERE id = ${callId}

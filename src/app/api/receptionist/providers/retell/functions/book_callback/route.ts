@@ -39,6 +39,8 @@ export async function POST(request: Request) {
         bookingId: out.bookingId,
         jobId: out.jobId,
         duplicate: out.duplicate,
+        ...(('crossCallMerged' in out && out.crossCallMerged) ? { crossCallMerged: true } : {}),
+        ...(('idempotentReplay' in out && out.idempotentReplay) ? { idempotentReplay: true } : {}),
       }),
     );
   } catch (e) {

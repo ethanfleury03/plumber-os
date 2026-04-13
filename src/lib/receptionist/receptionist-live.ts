@@ -30,6 +30,22 @@ function devBypassTwilio() {
   return process.env.RECEPTIONIST_DEV_BYPASS_TWILIO_SIGNATURE === 'true';
 }
 
+/**
+ * Twilio validates the exact public URL they posted to. Behind proxies or when `request.url`
+ * is an internal host, set `TWILIO_WEBHOOK_PUBLIC_URL` (no trailing slash) to the stable
+ * public origin + path prefix, e.g. `https://your-domain.com` so reconstructed URL matches Twilio.
+ */
+export function resolveTwilioWebhookUrl(requestUrl: string): string {
+  const base = process.env.TWILIO_WEBHOOK_PUBLIC_URL?.replace(/\/$/, '');
+  if (!base) return requestUrl;
+  try {
+    const u = new URL(requestUrl);
+    return `${base}${u.pathname}${u.search}`;
+  } catch {
+    return requestUrl;
+  }
+}
+
 function devBypassRetell() {
   return process.env.RECEPTIONIST_DEV_BYPASS_RETELL_SIGNATURE === 'true';
 }
@@ -58,9 +74,32 @@ export function verifyTwilioVoiceRequest(
   params: Record<string, string>,
 ): boolean {
   const token = process.env.TWILIO_AUTH_TOKEN;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (devBypassTwilio() && isProd && token) {
+    console.warn(
+      '[receptionist-live] RECEPTIONIST_DEV_BYPASS_TWILIO_SIGNATURE=true in production while TWILIO_AUTH_TOKEN is set — webhook signatures are not verified.',
+    );
+  }
+
   if (!shouldVerifyTwilio()) return true;
-  if (!token || !signature) return false;
-  return Twilio.validateRequest(token, signature, fullUrl, params);
+  if (!token || !signature) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(
+        '[receptionist-live] Twilio signature check failed: missing TWILIO_AUTH_TOKEN or x-twilio-signature (set TWILIO_VERIFY_SIGNATURES=false only for local debugging).',
+      );
+    }
+    return false;
+  }
+  const ok = Twilio.validateRequest(token, signature, fullUrl, params);
+  if (!ok && process.env.NODE_ENV === 'development') {
+    console.warn('[receptionist-live] Twilio validateRequest returned false', {
+      fullUrl,
+      keys: Object.keys(params),
+      hint: 'If using ngrok, set TWILIO_WEBHOOK_PUBLIC_URL to the exact public URL Twilio posts to.',
+    });
+  }
+  return ok;
 }
 
 export async function verifyRetellSignature(rawBody: string, signature: string | null): Promise<boolean> {
@@ -121,7 +160,8 @@ export async function handleTwilioInboundVoice(params: {
     From: params.from,
     To: params.to,
   };
-  if (!verifyTwilioVoiceRequest(params.signature, params.requestUrl, formParams)) {
+  const urlForSignature = resolveTwilioWebhookUrl(params.requestUrl);
+  if (!verifyTwilioVoiceRequest(params.signature, urlForSignature, formParams)) {
     return { twiml: twimlReject('Unauthorized'), status: 403 };
   }
 

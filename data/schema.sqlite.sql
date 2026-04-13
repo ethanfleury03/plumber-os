@@ -260,3 +260,19 @@ CREATE INDEX IF NOT EXISTS idx_receptionist_bookings_call ON receptionist_bookin
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_twilio_sid ON receptionist_calls(twilio_call_sid) WHERE twilio_call_sid IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_receptionist_calls_provider_call_id ON receptionist_calls(provider_call_id) WHERE provider_call_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_receptionist_tool_call ON receptionist_tool_invocations(call_id);
+
+CREATE TABLE IF NOT EXISTS receptionist_staff_tasks (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  call_id TEXT NOT NULL REFERENCES receptionist_calls(id) ON DELETE CASCADE,
+  task_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  title TEXT NOT NULL,
+  details_json TEXT,
+  priority TEXT NOT NULL DEFAULT 'normal',
+  assigned_to_plumber_id TEXT REFERENCES plumbers(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_receptionist_staff_tasks_call ON receptionist_staff_tasks(call_id);
+CREATE INDEX IF NOT EXISTS idx_receptionist_staff_tasks_status ON receptionist_staff_tasks(status);

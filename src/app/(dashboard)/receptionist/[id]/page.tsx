@@ -14,6 +14,8 @@ import {
   Phone,
   RefreshCw,
   UserPlus,
+  UserCog,
+  ClipboardList,
 } from 'lucide-react';
 
 interface Segment {
@@ -50,6 +52,16 @@ interface BookingRow {
   job_id: string | null;
 }
 
+interface StaffTaskRow {
+  id: string;
+  task_type: string;
+  status: string;
+  title: string;
+  priority: string;
+  created_at: string;
+  assigned_to_plumber_id: string | null;
+}
+
 export default function ReceptionistCallDetailPage() {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : '';
@@ -60,6 +72,7 @@ export default function ReceptionistCallDetailPage() {
     events: EventRow[];
     bookings: BookingRow[];
     toolInvocations: ToolInvocationRow[];
+    staffTasks: StaffTaskRow[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,6 +90,7 @@ export default function ReceptionistCallDetailPage() {
       events: data.events || [],
       bookings: data.bookings || [],
       toolInvocations: data.toolInvocations || [],
+      staffTasks: data.staffTasks || [],
     });
   }, [id]);
 
@@ -113,6 +127,28 @@ export default function ReceptionistCallDetailPage() {
     }
   };
 
+  const runStaffHandoff = async (action: string) => {
+    setBusy(true);
+    setActionMsg('');
+    try {
+      const res = await fetch(`/api/receptionist/calls/${id}/staff-handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Staff action failed');
+      }
+      setActionMsg('Saved.');
+      await load();
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-gray-50">
@@ -132,7 +168,7 @@ export default function ReceptionistCallDetailPage() {
     );
   }
 
-  const { call, segments, events, bookings, toolInvocations } = detail;
+  const { call, segments, events, bookings, toolInvocations, staffTasks } = detail;
   const isRetell = call.provider === 'retell';
   let extracted: Record<string, unknown> | null = null;
   try {
@@ -368,6 +404,32 @@ export default function ReceptionistCallDetailPage() {
                   ) : null}
                 </div>
               ) : null}
+              {callMeta.duplicateResolution && typeof callMeta.duplicateResolution === 'object' ? (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-sm text-sky-950">
+                  <p className="font-medium">Duplicate handling</p>
+                  <p className="text-xs mt-1">
+                    Outcome:{' '}
+                    <span className="font-semibold">
+                      {String((callMeta.duplicateResolution as { outcome?: string }).outcome || '—').replace(/_/g, ' ')}
+                    </span>
+                    {(callMeta.duplicateResolution as { priorJobId?: string }).priorJobId ? (
+                      <span className="block font-mono text-[11px] mt-1">
+                        Prior job: {(callMeta.duplicateResolution as { priorJobId?: string }).priorJobId}
+                      </span>
+                    ) : null}
+                    {(callMeta.duplicateResolution as { priorLeadId?: string }).priorLeadId ? (
+                      <span className="block font-mono text-[11px] mt-1">
+                        Prior lead: {(callMeta.duplicateResolution as { priorLeadId?: string }).priorLeadId}
+                      </span>
+                    ) : null}
+                    {(callMeta.duplicateResolution as { priorCallId?: string }).priorCallId ? (
+                      <span className="block font-mono text-[11px] mt-1">
+                        Prior call: {(callMeta.duplicateResolution as { priorCallId?: string }).priorCallId}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              ) : null}
               {Array.isArray(callMeta.duplicateNotes) && (callMeta.duplicateNotes as string[]).length ? (
                 <p className="text-xs text-gray-500">
                   Duplicate hints: {(callMeta.duplicateNotes as string[]).join(' · ')}
@@ -382,6 +444,189 @@ export default function ReceptionistCallDetailPage() {
               ) : null}
             </div>
           ) : null}
+
+          {callMeta?.caseRecord && typeof callMeta.caseRecord === 'object' ? (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 shadow-sm p-6 space-y-3">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-indigo-600" aria-hidden />
+                Best available case summary
+              </h2>
+              <p className="text-sm text-gray-800 font-medium">
+                {(callMeta.caseRecord as { canonicalIssueSummary?: string }).canonicalIssueSummary || '—'}
+              </p>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-700">
+                <div>
+                  <dt className="text-gray-500">Callback #</dt>
+                  <dd className="font-mono">
+                    {(callMeta.caseRecord as { bestCallbackPhone?: string | null }).bestCallbackPhone || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Service address</dt>
+                  <dd>{(callMeta.caseRecord as { bestServiceAddress?: string | null }).bestServiceAddress || '—'}</dd>
+                </div>
+              </dl>
+              {Array.isArray((callMeta.caseRecord as { missingCriticalFields?: string[] }).missingCriticalFields) &&
+              (callMeta.caseRecord as { missingCriticalFields: string[] }).missingCriticalFields.length ? (
+                <div>
+                  <p className="text-xs font-semibold text-amber-900">Needs confirmation</p>
+                  <ul className="text-xs text-amber-900 list-disc pl-4 mt-1">
+                    {(callMeta.caseRecord as { missingCriticalFields: string[] }).missingCriticalFields.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {Array.isArray((callMeta.caseRecord as { unresolvedAmbiguities?: string[] }).unresolvedAmbiguities) &&
+              (callMeta.caseRecord as { unresolvedAmbiguities: string[] }).unresolvedAmbiguities.length ? (
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">Ambiguities</p>
+                  <ul className="text-xs text-gray-600 list-disc pl-4 mt-1">
+                    {(callMeta.caseRecord as { unresolvedAmbiguities: string[] }).unresolvedAmbiguities.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {callMeta?.callerLinkage && typeof callMeta.callerLinkage === 'object' ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Caller / CRM match</h2>
+              <p className="text-sm text-gray-800">
+                <span className="font-medium">Outcome:</span>{' '}
+                {String((callMeta.callerLinkage as { outcome?: string }).outcome || '—').replace(/_/g, ' ')}
+              </p>
+              {(callMeta.callerLinkage as { customerId?: string }).customerId ? (
+                <p className="text-xs font-mono text-gray-600 mt-1">
+                  Customer: {(callMeta.callerLinkage as { customerId: string }).customerId}
+                </p>
+              ) : null}
+              {(callMeta.callerLinkage as { leadId?: string }).leadId ? (
+                <p className="text-xs font-mono text-gray-600 mt-1">
+                  Lead: {(callMeta.callerLinkage as { leadId: string }).leadId}
+                </p>
+              ) : null}
+              {(callMeta.callerLinkage as { priorCallId?: string }).priorCallId ? (
+                <p className="text-xs font-mono text-gray-600 mt-1">
+                  Prior call: {(callMeta.callerLinkage as { priorCallId: string }).priorCallId}
+                </p>
+              ) : null}
+              {Array.isArray((callMeta.callerLinkage as { rationale?: string[] }).rationale) ? (
+                <p className="text-xs text-gray-600 mt-2">
+                  {(callMeta.callerLinkage as { rationale: string[] }).rationale.join(' · ')}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {callMeta?.staffWorkflow && typeof callMeta.staffWorkflow === 'object' ? (
+            <div className="rounded-xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-800">
+              <p className="font-semibold text-gray-900 flex items-center gap-2">
+                <UserCog className="w-4 h-4" aria-hidden />
+                Operational status
+              </p>
+              <p className="mt-1">
+                Waiting on:{' '}
+                <span className="font-medium">
+                  {String((callMeta.staffWorkflow as { waitingOn?: string | null }).waitingOn || 'office').replace(
+                    /_/g,
+                    ' ',
+                  )}
+                </span>
+              </p>
+              {(callMeta.staffWorkflow as { recommendedHumanAction?: string }).recommendedHumanAction ? (
+                <p className="text-xs text-gray-600 mt-1">
+                  {(callMeta.staffWorkflow as { recommendedHumanAction: string }).recommendedHumanAction}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {staffTasks.length > 0 ? (
+            <div className="rounded-2xl border border-gray-200 bg-white/90 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-3">Staff tasks</h2>
+              <ul className="space-y-2 text-sm">
+                {staffTasks.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-2">
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        t.priority === 'urgent' ? 'bg-red-100 text-red-900' : 'bg-slate-100 text-slate-800'
+                      }`}
+                    >
+                      {t.priority}
+                    </span>
+                    <span className="font-medium text-gray-900">{t.title}</span>
+                    <span className="text-xs text-gray-500">{t.status}</span>
+                    <span className="text-xs text-gray-400">{new Date(t.created_at).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="rounded-xl border border-dashed border-gray-300 bg-white/60 p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Staff handoff</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('assign_on_call')}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-900 disabled:opacity-50"
+              >
+                Assign on-call
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('urgent_callback_task')}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+              >
+                Urgent callback
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('dispatch_review')}
+                className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
+              >
+                Dispatch review
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('escalate_emergency')}
+                className="px-3 py-1.5 rounded-lg bg-red-700 text-white text-xs font-medium hover:bg-red-800 disabled:opacity-50"
+              >
+                Escalate emergency
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('link_customer_ack')}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-800 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              >
+                Ack CRM link
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('mark_resolved')}
+                className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-900 text-xs font-medium hover:bg-emerald-50 disabled:opacity-50"
+              >
+                Mark resolved
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runStaffHandoff('mark_duplicate_no_action')}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              >
+                Duplicate / no action
+              </button>
+            </div>
+          </div>
 
           {actionMsg ? (
             <div

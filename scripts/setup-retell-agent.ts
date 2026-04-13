@@ -467,6 +467,16 @@ async function main() {
   console.log(
     `  (Retell reports agent version ${String(agentSnapshot.version ?? '?')}, is_published=${String(agentSnapshot.is_published ?? '?')})`,
   );
+  if (agentSnapshot.is_published === false) {
+    console.warn(
+      '[retell:setup] WARNING: Retell reports is_published=false. Confirm in the Retell dashboard before relying on this agent for production or demo phone numbers.',
+    );
+  }
+  if (!toolsOk) {
+    console.warn(
+      '[retell:setup] WARNING: Published agent tool audit did not fully match expectations. Verify custom tool URLs and RETELL_TOOL_SHARED_SECRET before live traffic.',
+    );
+  }
   console.log('');
 
   console.log('=== Manual steps (if any) ===');

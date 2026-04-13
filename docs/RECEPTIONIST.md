@@ -20,6 +20,8 @@ No Twilio or AI keys are required for mock mode.
 
 **Live Retell + Twilio:** see [RECEPTIONIST_RETELL.md](./RECEPTIONIST_RETELL.md), automated provisioning in [RECEPTIONIST_RETELL_SETUP_AUTOMATION.md](./RECEPTIONIST_RETELL_SETUP_AUTOMATION.md), and the agent script at [receptionist/retell-agent-script.md](./receptionist/retell-agent-script.md).
 
+**Operations (dedupe, case synthesis, staff tasks, eval, deployment):** [RECEPTIONIST_OPERATIONS.md](./RECEPTIONIST_OPERATIONS.md).
+
 ## Testing mock calls
 
 1. Go to **Receptionist**.

@@ -110,6 +110,21 @@ function metaOperationalPriority(json: string | null | undefined): string | null
   }
 }
 
+function metaDuplicateResolutionLabel(json: string | null | undefined): string | null {
+  if (!json?.trim()) return null;
+  try {
+    const o = JSON.parse(json) as { duplicateResolution?: { outcome?: string } };
+    const out = o.duplicateResolution?.outcome;
+    if (!out || out === 'new_record') return null;
+    if (out === 'cross_call_merged') return 'merged';
+    if (out === 'same_call_reused') return 'reused';
+    if (out === 'potential_duplicate_noted') return 'dup?';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function behaviorBadge(b: string | null): { className: string; label: string } | null {
   if (!b) return null;
   if (b === 'abusive_but_legitimate') return { className: 'bg-orange-100 text-orange-800', label: 'abusive' };
@@ -137,6 +152,8 @@ export default function ReceptionistDashboardPage() {
     incompleteChecklist: 0,
     urgentActionNeeded: 0,
     abusiveButLegitimate: 0,
+    crossCallDuplicatesMerged: 0,
+    openUrgentStaffTasks: 0,
   });
   const [recentCalls, setRecentCalls] = useState<DashboardCall[]>([]);
   const [integration, setIntegration] = useState<IntegrationSummary | null>(null);
@@ -422,6 +439,8 @@ export default function ReceptionistDashboardPage() {
               { label: 'Spam', value: stats.spamCalls },
               { label: 'Abusive legit', value: stats.abusiveButLegitimate, note: true },
               { label: 'Data gaps', value: stats.incompleteChecklist, note: true },
+              { label: 'Cross-call merges', value: stats.crossCallDuplicatesMerged ?? 0, note: true },
+              { label: 'Open urgent tasks', value: stats.openUrgentStaffTasks ?? 0, warn: true },
             ].map((s) => (
               <div
                 key={s.label}
@@ -653,6 +672,14 @@ export default function ReceptionistDashboardPage() {
                                 return ub && c.disposition !== 'emergency' ? (
                                   <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-medium ${ub.className}`}>
                                     {ub.label}
+                                  </span>
+                                ) : null;
+                              })()}
+                              {(() => {
+                                const d = metaDuplicateResolutionLabel(c.receptionist_meta_json ?? null);
+                                return d ? (
+                                  <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-900">
+                                    {d}
                                   </span>
                                 ) : null;
                               })()}

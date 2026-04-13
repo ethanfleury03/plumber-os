@@ -33,6 +33,18 @@ export function mergeReceptionistMeta(
   if (patch.spamRationale && base.spamRationale) {
     next.spamRationale = [...new Set([...base.spamRationale, ...patch.spamRationale])];
   }
-  next.version = 2;
+  if (patch.staffWorkflow) {
+    next.staffWorkflow = { ...base.staffWorkflow, ...patch.staffWorkflow };
+  }
+  if (patch.duplicateResolution !== undefined) {
+    next.duplicateResolution = patch.duplicateResolution;
+  }
+  if (patch.callerLinkage !== undefined) {
+    next.callerLinkage = patch.callerLinkage;
+  }
+  if (patch.caseRecord !== undefined) {
+    next.caseRecord = patch.caseRecord;
+  }
+  next.version = 3;
   return JSON.stringify(next);
 }

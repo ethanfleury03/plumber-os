@@ -42,6 +42,56 @@ export type InternalBookingOutcome =
   | 'emergency_flagged_pending_human'
   | 'none';
 
+export type DuplicateResolutionOutcome =
+  | 'new_record'
+  | 'same_call_reused'
+  | 'cross_call_merged'
+  | 'potential_duplicate_noted';
+
+export interface DuplicateResolutionInfo {
+  outcome: DuplicateResolutionOutcome;
+  recordType?: 'callback' | 'quote_visit' | 'lead';
+  priorCallId?: string;
+  priorBookingId?: string;
+  priorJobId?: string;
+  priorLeadId?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  rationale?: string[];
+  at?: string;
+}
+
+export type CallerLinkageOutcome =
+  | 'exact_customer_match'
+  | 'exact_lead_match'
+  | 'existing_open_case_match'
+  | 'probable_match_needs_review'
+  | 'no_match';
+
+export interface CallerLinkageStored {
+  outcome: CallerLinkageOutcome;
+  customerId?: string;
+  leadId?: string;
+  priorCallId?: string;
+  rationale: string[];
+}
+
+/** Structured case summary for operators (see case-synthesize.ts). */
+export interface ReceptionistCaseRecordStored {
+  version: 1;
+  canonicalIssueSummary: string;
+  normalizedIssueType: string | null;
+  bestCallbackPhone: string | null;
+  bestServiceAddress: string | null;
+  urgencyNote: string | null;
+  emergencyRationaleShort: string | null;
+  recommendedStaffAction: string;
+  missingCriticalFields: string[];
+  unresolvedAmbiguities: string[];
+  fieldConfidenceMap: Record<string, { confidence: string; source: string }>;
+  rawVsInferredNotes: string[];
+  synthesizedAt: string;
+}
+
 export interface ReceptionistCallMeta {
   version?: number;
   completeness?: CallCompletenessResult;
@@ -54,6 +104,8 @@ export interface ReceptionistCallMeta {
   internalOutcome?: InternalBookingOutcome;
   toolFallbacks?: Array<{ tool: string; action: string; reason?: string }>;
   duplicateNotes?: string[];
+  /** Latest deterministic duplicate merge / reuse decision */
+  duplicateResolution?: DuplicateResolutionInfo;
   issueRaw?: string | null;
   issueNormalized?: string | null;
   issueSuspicious?: boolean;
@@ -71,6 +123,15 @@ export interface ReceptionistCallMeta {
   abandonedSignals?: string[];
   spamRationale?: string[];
   lastToolError?: { tool?: string; message?: string; at?: string };
+  callerLinkage?: CallerLinkageStored;
+  caseRecord?: ReceptionistCaseRecordStored;
+  staffWorkflow?: {
+    waitingOn?: 'office' | 'on_call' | 'customer' | 'schedule' | null;
+    recommendedHumanAction?: string;
+    lastStaffAction?: string;
+    lastStaffActionAt?: string;
+    lastTaskId?: string;
+  };
 }
 
 export interface CallCompletenessItem {
