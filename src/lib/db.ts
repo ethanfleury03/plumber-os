@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { applyReceptionistMigrations } from '@/lib/receptionist/sqlite-migrate';
+import { applyEstimatesMigrations } from '@/lib/estimates/sqlite-estimate-migrate';
 
 function bindValue(v: unknown): unknown {
   if (v === undefined) return null;
@@ -55,6 +56,17 @@ function flattenFragments(
 
 let dbInstance: Database.Database | null = null;
 
+/** Vitest only: closes and clears the singleton so tests can swap SQLITE_PATH. */
+export function resetSqliteSingletonForTests() {
+  if (process.env.NODE_ENV !== 'test') return;
+  try {
+    dbInstance?.close();
+  } catch {
+    /* ignore */
+  }
+  dbInstance = null;
+}
+
 /**
  * Older local DBs may lack receptionist (and other) tables. Apply committed
  * schema once — all statements use IF NOT EXISTS, so this is safe for existing data.
@@ -76,6 +88,7 @@ function ensureCommittedSchema(db: Database.Database) {
   db.exec(schema);
 }
 
+/** Exposed for rare synchronous transactions (e.g. estimate number allocation). */
 export function getDb(): Database.Database {
   if (dbInstance) {
     return dbInstance;
@@ -88,9 +101,10 @@ export function getDb(): Database.Database {
   dbInstance = new Database(file);
   dbInstance.pragma('journal_mode = DELETE');
   dbInstance.pragma('foreign_keys = ON');
-  dbInstance.function('uuid', randomUUID);
+  dbInstance.function('uuid', () => randomUUID());
   ensureCommittedSchema(dbInstance);
   applyReceptionistMigrations(dbInstance);
+  applyEstimatesMigrations(dbInstance);
 
   return dbInstance;
 }

@@ -225,6 +225,15 @@ export default function ReceptionistCallDetailPage() {
                   </a>
                 </p>
               ) : null}
+              <p className="text-sm mt-2">
+                <Link
+                  href={`/estimates/new?receptionist_call_id=${encodeURIComponent(id)}`}
+                  className="inline-flex items-center gap-1 text-teal-700 font-medium hover:underline"
+                >
+                  <ClipboardList className="w-4 h-4" aria-hidden />
+                  New estimate from this call
+                </Link>
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
