@@ -331,7 +331,11 @@ export default function LeadsPage() {
                     <tr key={lead.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{lead.customer_name || '-'}</p>
+                          <p className="font-medium text-gray-900">
+                            <Link href={`/leads/${lead.id}`} className="hover:text-blue-600 hover:underline">
+                              {lead.customer_name || 'View lead'}
+                            </Link>
+                          </p>
                           <p className="text-xs text-gray-500 capitalize">{lead.source}</p>
                         </div>
                       </td>

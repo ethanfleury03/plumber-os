@@ -128,6 +128,19 @@ export function applyEstimatesMigrations(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS estimate_catalog_services (
+      id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+      company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      unit_price_cents INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_estimate_catalog_services_company ON estimate_catalog_services(company_id);
+
     CREATE INDEX IF NOT EXISTS idx_estimates_company ON estimates(company_id);
     CREATE INDEX IF NOT EXISTS idx_estimates_status ON estimates(status);
     CREATE INDEX IF NOT EXISTS idx_estimates_customer ON estimates(customer_id);

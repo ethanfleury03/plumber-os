@@ -4,12 +4,28 @@ import { getDb } from '@/lib/db';
 import { allocateEstimateNumber } from '@/lib/estimates/number';
 import {
   buildEstimateEmailCopy,
-  getDeliveryProviderFromEnv,
+  pickEmailProvider,
+  TwilioSmsEstimateDeliveryProvider,
+  MockEstimateDeliveryProvider,
+  type DeliveryResult,
   type DeliverySendInput,
 } from '@/lib/estimates/delivery';
+import { sendEstimateViaClerkMailbox } from '@/lib/estimates/clerk-mailbox';
 import { calculateEstimateTotals, lineExtendedCents, type LineInput } from '@/lib/estimates/totals';
 import type { ActivityEventType, EstimateStatus } from '@/lib/estimates/types';
 import { assertStatusTransition } from '@/lib/estimates/validation';
+import { getCatalogServicesByIds } from '@/lib/estimates/catalog-services';
+
+async function sendEmailWithMailboxFirst(
+  clerkUserId: string | null | undefined,
+  input: DeliverySendInput,
+): Promise<DeliveryResult> {
+  if (clerkUserId) {
+    const mb = await sendEstimateViaClerkMailbox(clerkUserId, input);
+    if (mb.status === 'sent') return mb;
+  }
+  return pickEmailProvider().send(input);
+}
 
 function publicAppBaseUrl(): string {
   return (
@@ -157,6 +173,8 @@ export async function listEstimates(params: {
   search?: string | null;
   page?: number;
   limit?: number;
+  customer_id?: string | null;
+  lead_id?: string | null;
 }) {
   const page = Math.max(1, params.page || 1);
   const limit = Math.min(100, Math.max(1, params.limit || 20));
@@ -174,6 +192,14 @@ export async function listEstimates(params: {
     LEFT JOIN customers c ON e.customer_id = c.id
     WHERE e.company_id = ${params.companyId}
   `;
+  if (params.customer_id) {
+    listQuery = sql`${listQuery} AND e.customer_id = ${params.customer_id}`;
+    countQuery = sql`${countQuery} AND e.customer_id = ${params.customer_id}`;
+  }
+  if (params.lead_id) {
+    listQuery = sql`${listQuery} AND e.lead_id = ${params.lead_id}`;
+    countQuery = sql`${countQuery} AND e.lead_id = ${params.lead_id}`;
+  }
   if (params.status && params.status !== 'all') {
     listQuery = sql`${listQuery} AND e.status = ${params.status}`;
     countQuery = sql`${countQuery} AND e.status = ${params.status}`;
@@ -247,6 +273,18 @@ export type CreateEstimateInput = {
   tax_rate_basis_points?: number | null;
   deposit_amount_cents?: number | null;
   selected_option_group?: string | null;
+  /** After create, add line items from these catalog service ids (same company). */
+  catalog_service_ids?: string[] | null;
+  /** After create, add these line items (takes precedence over catalog_service_ids). */
+  initial_line_items?: Array<{
+    catalog_service_id?: string | null;
+    name: string;
+    description?: string | null;
+    quantity: number;
+    unit: string;
+    unit_price_cents: number;
+    is_taxable?: boolean;
+  }> | null;
 };
 
 export async function createEstimate(input: CreateEstimateInput): Promise<Record<string, unknown>> {
@@ -408,9 +446,42 @@ export async function createEstimate(input: CreateEstimateInput): Promise<Record
   `;
 
   const row = inserted[0] as Record<string, unknown>;
-  await logActivity(row.id as string, 'created', { title: input.title }, 'system', null);
-  await recalculateAndPersistEstimate(row.id as string);
-  return (await sql`SELECT * FROM estimates WHERE id = ${row.id} LIMIT 1`)[0] as Record<string, unknown>;
+  const estimateRowId = row.id as string;
+  await logActivity(estimateRowId, 'created', { title: input.title }, 'system', null);
+
+  const initialLines = input.initial_line_items?.filter((l) => l.name?.trim()) ?? [];
+  if (initialLines.length) {
+    for (const li of initialLines) {
+      await addEstimateLineItem(estimateRowId, {
+        name: li.name.trim(),
+        description: li.description?.trim() || null,
+        quantity: li.quantity,
+        unit: li.unit || 'ea',
+        unit_price_cents: li.unit_price_cents,
+        is_taxable: li.is_taxable !== false,
+        category: li.catalog_service_id ? 'Service' : null,
+      });
+    }
+  } else {
+    const catIds = input.catalog_service_ids?.filter(Boolean) ?? [];
+    if (catIds.length) {
+      const services = await getCatalogServicesByIds(companyId, catIds);
+      for (const svc of services) {
+        await addEstimateLineItem(estimateRowId, {
+          name: svc.name,
+          description: svc.description ?? null,
+          quantity: 1,
+          unit: 'ea',
+          unit_price_cents: svc.unit_price_cents,
+          is_taxable: true,
+          category: 'Service',
+        });
+      }
+    }
+  }
+  await recalculateAndPersistEstimate(estimateRowId);
+
+  return (await sql`SELECT * FROM estimates WHERE id = ${estimateRowId} LIMIT 1`)[0] as Record<string, unknown>;
 }
 
 export async function updateEstimate(
@@ -616,7 +687,18 @@ export async function reorderEstimateLineItems(estimateId: string, orderedIds: s
   await logActivity(estimateId, 'updated', { reorder: true }, 'system', null);
 }
 
-export async function sendEstimate(estimateId: string, opts?: { recipientEmail?: string | null }) {
+export async function sendEstimate(
+  estimateId: string,
+  opts?: {
+    recipientEmail?: string | null;
+    recipientPhone?: string | null;
+    channel?: 'email' | 'sms' | 'auto';
+    emailSubject?: string | null;
+    emailBody?: string | null;
+    /** When Clerk is enabled, tries Gmail / Microsoft Graph before Resend. */
+    clerkUserId?: string | null;
+  },
+) {
   const est = await getEstimateById(estimateId);
   if (!est) throw new Error('Estimate not found');
   const st = est.status as EstimateStatus;
@@ -624,9 +706,11 @@ export async function sendEstimate(estimateId: string, opts?: { recipientEmail?:
 
   const base = publicAppBaseUrl();
   const publicUrl = `${base}/estimate/${est.customer_public_token as string}`;
-  const recipient = opts?.recipientEmail?.trim() || (est.customer_email_snapshot as string) || '';
+  const email = opts?.recipientEmail?.trim() || (est.customer_email_snapshot as string) || '';
+  const phone = opts?.recipientPhone?.trim() || (est.customer_phone_snapshot as string) || '';
+  const channel = opts?.channel ?? 'auto';
 
-  const input: DeliverySendInput = {
+  const inputBase: DeliverySendInput = {
     estimateId,
     estimateNumber: String(est.estimate_number),
     customerName: String(est.customer_name_snapshot),
@@ -634,11 +718,48 @@ export async function sendEstimate(estimateId: string, opts?: { recipientEmail?:
     totalCents: Number(est.total_amount_cents) || 0,
     expirationDate: (est.expiration_date as string) || null,
     publicUrl,
-    recipientEmail: recipient || null,
+    recipientEmail: null,
+    recipientPhone: null,
+    emailSubject: opts?.emailSubject ?? null,
+    emailBody: opts?.emailBody ?? null,
   };
 
-  const provider = getDeliveryProviderFromEnv();
-  const result = await provider.send(input);
+  let result: DeliveryResult;
+  let deliveryType: string;
+  let recipientRecord: string;
+
+  if (channel === 'sms') {
+    const sms = new TwilioSmsEstimateDeliveryProvider();
+    result = await sms.send({ ...inputBase, recipientEmail: null, recipientPhone: phone || null });
+    deliveryType = 'sms_share_link';
+    recipientRecord = phone || publicUrl;
+  } else if (channel === 'email') {
+    result = await sendEmailWithMailboxFirst(opts?.clerkUserId, {
+      ...inputBase,
+      recipientEmail: email || null,
+    });
+    deliveryType = email ? 'email' : 'manual_copy_link';
+    recipientRecord = email || publicUrl;
+  } else {
+    if (email) {
+      result = await sendEmailWithMailboxFirst(opts?.clerkUserId, {
+        ...inputBase,
+        recipientEmail: email,
+      });
+      deliveryType = 'email';
+      recipientRecord = email;
+    } else if (phone) {
+      const sms = new TwilioSmsEstimateDeliveryProvider();
+      result = await sms.send({ ...inputBase, recipientEmail: null, recipientPhone: phone });
+      deliveryType = 'sms_share_link';
+      recipientRecord = phone;
+    } else {
+      const mock = new MockEstimateDeliveryProvider();
+      result = await mock.send({ ...inputBase, recipientEmail: null });
+      deliveryType = 'manual_copy_link';
+      recipientRecord = publicUrl;
+    }
+  }
 
   const deliveryStatus = result.status === 'sent' ? 'sent' : 'failed';
   const deliveryId = randomUUID();
@@ -649,8 +770,8 @@ export async function sendEstimate(estimateId: string, opts?: { recipientEmail?:
     ) VALUES (
       ${deliveryId},
       ${estimateId},
-      ${recipient ? 'email' : 'manual_copy_link'},
-      ${recipient || publicUrl},
+      ${deliveryType},
+      ${recipientRecord},
       ${result.subject},
       ${result.body},
       ${result.provider},
@@ -695,7 +816,10 @@ export async function markEstimateViewedByToken(token: string) {
   return getEstimateByPublicToken(token);
 }
 
-export async function approveEstimateByToken(token: string) {
+export async function approveEstimateByToken(
+  token: string,
+  opts?: { acknowledge?: boolean; signerName?: string | null },
+) {
   const row = await getEstimateByPublicToken(token);
   if (!row) throw new Error('Not found');
   await expireEstimateIfNeeded(row);
@@ -706,11 +830,19 @@ export async function approveEstimateByToken(token: string) {
   if ((fresh.status as string) === 'rejected') throw new Error('Already rejected');
   if ((fresh.status as string) === 'converted') throw new Error('Already converted');
 
+  const companyId = fresh.company_id as string;
+  const settings = await ensureEstimateSettings(companyId);
+  if (Number(settings.customer_signature_required)) {
+    if (!opts?.acknowledge) {
+      throw new Error('Please confirm that you approve this estimate (checkbox required).');
+    }
+  }
+
   await sql`
     UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ${fresh.id as string}
   `;
-  await logActivity(fresh.id as string, 'approved', {}, 'customer', null);
+  await logActivity(fresh.id as string, 'approved', { signer_name: opts?.signerName ?? null }, 'customer', null);
   return getEstimateByPublicToken(token);
 }
 
@@ -912,6 +1044,26 @@ export async function buildEstimatePresentation(estimateId: string, opts?: { int
   const publicUrl = `${publicAppBaseUrl()}/estimate/${est.customer_public_token}`;
 
   const estView = opts?.internal ? est : { ...est, notes_internal: undefined };
+  const emailDraftInput: DeliverySendInput = {
+    estimateId,
+    estimateNumber: String(est.estimate_number),
+    customerName: String(est.customer_name_snapshot),
+    title: String(est.title),
+    totalCents: Number(est.total_amount_cents) || 0,
+    expirationDate: (est.expiration_date as string) || null,
+    publicUrl,
+    recipientEmail: null,
+  };
+  const template = buildEstimateEmailCopy(emailDraftInput);
+  const emailDraft = opts?.internal
+    ? {
+        defaultSubject: template.subject,
+        defaultBody: template.body,
+        toEmail: (est.customer_email_snapshot as string) || null,
+        customerPhone: (est.customer_phone_snapshot as string) || null,
+      }
+    : undefined;
+
   return {
     estimate: estView,
     lineItems: lines,
@@ -922,7 +1074,12 @@ export async function buildEstimatePresentation(estimateId: string, opts?: { int
       footer: settings.estimate_footer_text,
       terms: settings.default_terms_text,
     },
+    approval: {
+      customerSignatureRequired: Boolean(Number(settings.customer_signature_required)),
+      allowCustomerReject: Boolean(Number(settings.allow_customer_reject)),
+    },
     publicUrl,
+    ...(emailDraft ? { emailDraft } : {}),
   };
 }
 

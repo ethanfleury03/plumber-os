@@ -10,7 +10,17 @@ export async function GET(request: Request) {
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
-    const data = await listEstimates({ companyId, status, search, page, limit });
+    const customer_id = searchParams.get('customer_id');
+    const lead_id = searchParams.get('lead_id');
+    const data = await listEstimates({
+      companyId,
+      status,
+      search,
+      page,
+      limit,
+      customer_id: customer_id || null,
+      lead_id: lead_id || null,
+    });
     return NextResponse.json(data);
   } catch (e) {
     console.error(e);
@@ -39,6 +49,8 @@ export async function POST(request: Request) {
       tax_rate_basis_points: body.tax_rate_basis_points ?? null,
       deposit_amount_cents: body.deposit_amount_cents ?? null,
       selected_option_group: body.selected_option_group ?? null,
+      catalog_service_ids: body.catalog_service_ids ?? null,
+      initial_line_items: body.initial_line_items ?? null,
     });
     return NextResponse.json({ estimate: est });
   } catch (e) {

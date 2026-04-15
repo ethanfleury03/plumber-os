@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Mail, X } from 'lucide-react';
 
@@ -233,7 +234,12 @@ export default function CustomersPage() {
                           <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                             <span className="text-blue-600 font-medium">{customer.name.charAt(0)}</span>
                           </div>
-                          <span className="font-medium text-gray-900">{customer.name}</span>
+                          <Link
+                            href={`/customers/${customer.id}`}
+                            className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                          >
+                            {customer.name}
+                          </Link>
                         </div>
                       </td>
                       <td className="px-6 py-4">

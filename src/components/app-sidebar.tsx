@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { useClerk } from '@clerk/nextjs';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
@@ -21,13 +22,17 @@ import {
   Users,
   FileText,
   ClipboardList,
+  Wrench,
+  LogOut,
 } from 'lucide-react';
+import type { SessionUser } from '@/lib/auth/types';
 import clsx from 'clsx';
 
 const CRM_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/crm', label: 'Board', icon: LayoutGrid },
   { href: '/customers', label: 'Customers', icon: Users },
   { href: '/invoices', label: 'Invoices', icon: FileText },
+  { href: '/crm/service-catalog', label: 'Service catalog', icon: Wrench },
 ];
 
 const PRIMARY_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
@@ -49,6 +54,20 @@ function navItemIsActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function ClerkSignOutIconButton({ className }: { className?: string }) {
+  const { signOut } = useClerk();
+  return (
+    <button
+      type="button"
+      onClick={() => signOut({ redirectUrl: '/' })}
+      title="Sign out"
+      className={className}
+    >
+      <LogOut className="w-4 h-4" />
+    </button>
+  );
+}
+
 function isCrmSectionPath(pathname: string) {
   if (pathname === '/crm' || pathname.startsWith('/crm/')) return true;
   if (pathname === '/customers' || pathname.startsWith('/customers/')) return true;
@@ -65,6 +84,16 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
   const pathname = usePathname() || '';
   const [crmOpen, setCrmOpen] = useState(() => isCrmSectionPath(pathname));
   const prevPathname = useRef(pathname);
+  const [user, setUser] = useState<SessionUser | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((j: { authenticated: boolean; user?: SessionUser }) => {
+        if (j.authenticated && j.user) setUser(j.user);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const prev = prevPathname.current;
@@ -140,7 +169,7 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
                 const SubIcon = sub.icon;
                 const active =
                   sub.href === '/crm'
-                    ? pathname === '/crm' || pathname.startsWith('/crm/')
+                    ? pathname === '/crm' || pathname === '/crm/'
                     : navItemIsActive(pathname, sub.href);
                 return (
                   <Link
@@ -189,14 +218,15 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
         ) : null}
 
         <div className="p-4 border-t border-gray-700/50">
-          <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold shadow-lg">
-              AK
+          <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 group">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold shadow-lg shrink-0">
+              {user?.avatarInitials ?? '??'}
             </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Akshay K.</p>
-              <p className="text-xs text-gray-400">Admin</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white truncate">{user?.name || user?.email || '—'}</p>
+              <p className="text-xs text-gray-400 capitalize">{user?.role ?? ''}</p>
             </div>
+            <ClerkSignOutIconButton className="shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition opacity-0 group-hover:opacity-100" />
           </div>
         </div>
       </div>

@@ -44,3 +44,6 @@ Thumbs.db
 
 # Debug
 npm-debug.log*
+
+# clerk configuration (can include secrets)
+/.clerk/

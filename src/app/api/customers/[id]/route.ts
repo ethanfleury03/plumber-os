@@ -22,11 +22,18 @@ export async function GET(
     const invoices = await sql`
       SELECT * FROM invoices WHERE customer_id = ${id} ORDER BY created_at DESC
     `;
+    const estimates = await sql`
+      SELECT id, estimate_number, title, status, total_amount_cents, created_at, updated_at, customer_public_token
+      FROM estimates
+      WHERE customer_id = ${id}
+      ORDER BY created_at DESC
+    `;
 
     return NextResponse.json({
       customer: customerRows[0],
       jobs,
       invoices,
+      estimates,
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

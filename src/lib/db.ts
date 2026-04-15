@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { applyReceptionistMigrations } from '@/lib/receptionist/sqlite-migrate';
 import { applyEstimatesMigrations } from '@/lib/estimates/sqlite-estimate-migrate';
+import { applyAuthMigrations } from '@/lib/auth/sqlite-auth-migrate';
+import { seedAdminUser } from '@/lib/auth/seed-admin';
 
 function bindValue(v: unknown): unknown {
   if (v === undefined) return null;
@@ -105,6 +107,10 @@ export function getDb(): Database.Database {
   ensureCommittedSchema(dbInstance);
   applyReceptionistMigrations(dbInstance);
   applyEstimatesMigrations(dbInstance);
+  applyAuthMigrations(dbInstance);
+  if (process.env.NODE_ENV !== 'test') {
+    seedAdminUser(dbInstance);
+  }
 
   return dbInstance;
 }

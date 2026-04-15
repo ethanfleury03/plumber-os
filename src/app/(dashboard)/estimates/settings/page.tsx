@@ -44,24 +44,44 @@ export default function EstimateSettingsPage() {
   }
 
   if (!s) {
-    return <div className="p-8 text-gray-500">{err || 'Loading…'}</div>;
+    return (
+      <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
+        <div className="p-8 text-gray-500">{err || 'Loading…'}</div>
+      </div>
+    );
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <Link href="/estimates" className="inline-flex items-center gap-2 text-sm text-teal-700 hover:underline">
-        <ArrowLeft className="w-4 h-4" />
-        Estimates
-      </Link>
-      <h1 className="text-2xl font-bold text-gray-900">Estimate defaults</h1>
-      <form onSubmit={save} className="space-y-4 bg-white border rounded-xl p-6 shadow-sm">
+    <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
+      <main className="flex-1 min-h-0 overflow-auto">
+        <header className="bg-white border-b border-gray-200 px-8 py-4">
+          <Link
+            href="/estimates"
+            className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Estimates
+          </Link>
+          <h1 className="text-2xl font-semibold text-gray-900 mt-3">Estimate defaults</h1>
+          <p className="text-gray-500 text-sm mt-1">Branding, numbering, and customer-facing defaults.</p>
+        </header>
+        <div className="p-8 max-w-2xl">
+          <form onSubmit={save} className="space-y-4 bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
         <div>
           <label className="text-sm font-medium text-gray-700">Company display name</label>
-          <input name="company_name" defaultValue={String(s.company_name)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+          <input
+            name="company_name"
+            defaultValue={String(s.company_name)}
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
         <div>
           <label className="text-sm font-medium text-gray-700">Number prefix</label>
-          <input name="estimate_prefix" defaultValue={String(s.estimate_prefix)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+          <input
+            name="estimate_prefix"
+            defaultValue={String(s.estimate_prefix)}
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
         <div>
           <label className="text-sm font-medium text-gray-700">Default expiration (days)</label>
@@ -69,7 +89,7 @@ export default function EstimateSettingsPage() {
             name="default_expiration_days"
             type="number"
             defaultValue={String(s.default_expiration_days)}
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
@@ -77,7 +97,7 @@ export default function EstimateSettingsPage() {
           <input
             name="tax_bps"
             defaultValue={s.default_tax_rate_basis_points != null ? String(s.default_tax_rate_basis_points) : ''}
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="leave blank for none"
           />
         </div>
@@ -86,7 +106,7 @@ export default function EstimateSettingsPage() {
           <textarea
             name="default_terms_text"
             defaultValue={String(s.default_terms_text || '')}
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm min-h-[100px]"
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[100px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
@@ -94,7 +114,7 @@ export default function EstimateSettingsPage() {
           <textarea
             name="estimate_footer_text"
             defaultValue={String(s.estimate_footer_text || '')}
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm min-h-[60px]"
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[60px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -102,10 +122,15 @@ export default function EstimateSettingsPage() {
           Allow customer to reject from public link
         </label>
         {err ? <p className="text-sm text-red-600">{err}</p> : null}
-        <button type="submit" className="px-4 py-2 rounded-lg bg-teal-700 text-white text-sm font-medium">
+        <button
+          type="submit"
+          className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition"
+        >
           Save
         </button>
       </form>
+        </div>
+      </main>
     </div>
   );
 }

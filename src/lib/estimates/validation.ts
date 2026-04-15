@@ -21,7 +21,32 @@ export const createEstimateBodySchema = z.object({
   tax_rate_basis_points: z.number().int().min(0).max(1_000_000).optional().nullable(),
   deposit_amount_cents: z.number().int().min(0).optional().nullable(),
   selected_option_group: z.string().max(120).optional().nullable(),
+  /** Line items created from company catalog services, in order. */
+  catalog_service_ids: z.array(z.string().uuid()).max(100).optional(),
+  /** Explicit line items on create (overrides catalog_service_ids when both sent). */
+  initial_line_items: z
+    .array(
+      z.object({
+        catalog_service_id: z.string().uuid().optional().nullable(),
+        name: z.string().min(1).max(500),
+        description: z.string().max(5000).optional().nullable(),
+        quantity: z.number().gt(0).max(1_000_000),
+        unit: z.string().min(1).max(40).default('ea'),
+        unit_price_cents: z.number().int().min(0).max(100_000_000),
+        is_taxable: z.boolean().optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
+
+export const catalogServiceBodySchema = z.object({
+  name: z.string().min(1).max(500),
+  description: z.string().max(5000).optional().nullable(),
+  unit_price_cents: z.number().int().min(0).max(100_000_000),
+});
+
+export const patchCatalogServiceBodySchema = catalogServiceBodySchema.partial();
 
 export const patchEstimateBodySchema = createEstimateBodySchema.partial().extend({
   status: estimateStatusSchema.optional(),

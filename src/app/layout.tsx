@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import {
+  ClerkProvider,
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,7 +24,7 @@ export const metadata: Metadata = {
   description: "SaaS platform for plumbing companies - manage leads, jobs, customers, invoices, and team scheduling.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -25,9 +32,20 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col bg-slate-50`}
       >
-        {children}
+        <ClerkProvider>
+          <header className="flex items-center justify-end gap-2 px-4 py-3 border-b border-slate-200 bg-white/90 backdrop-blur-sm shrink-0">
+            <Show when="signed-out">
+              <SignInButton />
+              <SignUpButton />
+            </Show>
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
+          </header>
+          <div className="flex-1 min-h-0">{children}</div>
+        </ClerkProvider>
       </body>
     </html>
   );

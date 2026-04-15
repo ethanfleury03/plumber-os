@@ -18,6 +18,7 @@ vi.hoisted(() => {
 });
 
 import { resetSqliteSingletonForTests, sql } from '@/lib/db';
+import { createCatalogService } from '@/lib/estimates/catalog-services';
 import {
   addEstimateLineItem,
   approveEstimateByToken,
@@ -187,6 +188,75 @@ describe('estimate service integration', () => {
     const dup = await duplicateEstimate(id);
     expect(dup.estimate_number).not.toBe(est.estimate_number);
     expect(Number(dup.version_number)).toBeGreaterThan(Number(est.version_number));
+
+    resetSqliteSingletonForTests();
+  });
+
+  it('create estimate with catalog_service_ids adds line items', async () => {
+    resetSqliteSingletonForTests();
+    await sql`DELETE FROM estimate_delivery`;
+    await sql`DELETE FROM estimate_activity`;
+    await sql`DELETE FROM estimate_line_items`;
+    await sql`DELETE FROM estimates`;
+    await sql`DELETE FROM estimate_catalog_services`;
+    await sql`DELETE FROM estimate_settings`;
+    await sql`DELETE FROM estimate_number_sequences`;
+    await sql`DELETE FROM companies`;
+    await sql`INSERT INTO companies (id, name, email) VALUES ('c4', 'Co4', 'co4@example.com')`;
+
+    const svc = await createCatalogService('c4', {
+      name: 'Drain clear',
+      description: 'Main line',
+      unit_price_cents: 12_500,
+    });
+    const est = await createEstimate({
+      company_id: 'c4',
+      title: 'Quote with catalog',
+      catalog_service_ids: [svc.id],
+    });
+    const lines = await sql`SELECT name, unit_price_cents, description FROM estimate_line_items WHERE estimate_id = ${est.id as string}`;
+    expect(lines.length).toBe(1);
+    expect(String((lines[0] as { name: string }).name)).toBe('Drain clear');
+    expect(Number((lines[0] as { unit_price_cents: number }).unit_price_cents)).toBe(12_500);
+
+    resetSqliteSingletonForTests();
+  });
+
+  it('create estimate with initial_line_items and discount', async () => {
+    resetSqliteSingletonForTests();
+    await sql`DELETE FROM estimate_delivery`;
+    await sql`DELETE FROM estimate_activity`;
+    await sql`DELETE FROM estimate_line_items`;
+    await sql`DELETE FROM estimates`;
+    await sql`DELETE FROM estimate_catalog_services`;
+    await sql`DELETE FROM estimate_settings`;
+    await sql`DELETE FROM estimate_number_sequences`;
+    await sql`DELETE FROM companies`;
+    await sql`INSERT INTO companies (id, name, email) VALUES ('c5', 'Co5', 'co5@example.com')`;
+
+    const est = await createEstimate({
+      company_id: 'c5',
+      title: 'Custom lines',
+      discount_amount_cents: 1_000,
+      initial_line_items: [
+        {
+          name: 'Labor',
+          description: '2 hr',
+          quantity: 2,
+          unit: 'ea',
+          unit_price_cents: 5_000,
+          is_taxable: true,
+        },
+      ],
+    });
+    const lines = await sql`SELECT name FROM estimate_line_items WHERE estimate_id = ${est.id as string}`;
+    expect(lines.length).toBe(1);
+    const row = (await sql`SELECT total_amount_cents, discount_amount_cents FROM estimates WHERE id = ${est.id as string}`)[0] as {
+      total_amount_cents: number;
+      discount_amount_cents: number;
+    };
+    expect(Number(row.discount_amount_cents)).toBe(1_000);
+    expect(Number(row.total_amount_cents)).toBeGreaterThan(0);
 
     resetSqliteSingletonForTests();
   });
