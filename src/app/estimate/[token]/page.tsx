@@ -1,11 +1,21 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 type ApprovalInfo = {
   customerSignatureRequired: boolean;
   allowCustomerReject: boolean;
+};
+
+type PaymentInfo = {
+  stripeSecretConfigured: boolean;
+  onlinePaymentsEnabled: boolean;
+  estimateDepositsEnabled: boolean;
+  depositAmountCents: number;
+  depositStatus: string;
+  mustPayBeforeApprove: boolean;
+  depositCheckoutAvailable: boolean;
 };
 
 type Presentation = {
@@ -14,6 +24,7 @@ type Presentation = {
   branding: Record<string, unknown>;
   publicUrl: string;
   approval?: ApprovalInfo;
+  payment?: PaymentInfo;
 };
 
 function money(cents: number) {
@@ -40,6 +51,7 @@ function groupHeading(label: string): string {
 
 export default function PublicEstimatePage() {
   const { token } = useParams<{ token: string }>();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<Presentation | null>(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -63,6 +75,12 @@ export default function PublicEstimatePage() {
       })
       .map(([group, items]) => ({ group, items }));
   }, [data]);
+
+  useEffect(() => {
+    if (searchParams.get('deposit') === 'cancelled') {
+      setErr('Checkout was cancelled. You can try again when you’re ready.');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +121,23 @@ export default function PublicEstimatePage() {
       if (!res.ok) throw new Error(j.error || 'Failed');
       setData(j.presentation as Presentation);
       setMsg('Thank you — your approval has been recorded.');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Error');
+    }
+  }
+
+  async function payDeposit() {
+    setMsg('');
+    setErr('');
+    try {
+      const res = await fetch(`/api/public/estimate/${token}/checkout-deposit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Failed to start checkout');
+      if (j.url) window.location.href = j.url as string;
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Error');
     }
@@ -152,6 +187,12 @@ export default function PublicEstimatePage() {
   const done = status === 'approved' || status === 'rejected' || status === 'converted' || status === 'expired';
   const allowReject = data.approval?.allowCustomerReject !== false;
   const needAck = Boolean(data.approval?.customerSignatureRequired);
+  const pay = data.payment;
+  const depCents = pay?.depositAmountCents ?? 0;
+  const depStat = pay?.depositStatus ?? String(e.deposit_status || 'none');
+  const showDeposit =
+    Boolean(pay?.depositCheckoutAvailable) && depCents > 0 && depStat !== 'paid' && depStat !== 'waived';
+  const blockApprove = Boolean(pay?.mustPayBeforeApprove);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 print:bg-white">
@@ -241,6 +282,12 @@ export default function PublicEstimatePage() {
               <span>Total</span>
               <span>{money(Number(e.total_amount_cents))}</span>
             </div>
+            {depCents > 0 ? (
+              <div className="flex justify-between text-sm pt-2 border-t border-slate-100 text-amber-900">
+                <span>Deposit due</span>
+                <span className="font-semibold">{money(depCents)}</span>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -288,12 +335,27 @@ export default function PublicEstimatePage() {
           ) : null}
 
           <div className="flex flex-wrap gap-3 justify-center">
+            {canAct && blockApprove ? (
+              <p className="w-full text-center text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
+                A deposit is required before you can approve this estimate. Pay the deposit below (secure checkout).
+              </p>
+            ) : null}
+            {canAct && showDeposit ? (
+              <button
+                type="button"
+                onClick={() => void payDeposit()}
+                className="px-6 py-3 rounded-xl text-white font-semibold shadow bg-slate-900 hover:bg-slate-800"
+              >
+                Pay deposit
+              </button>
+            ) : null}
             {canAct ? (
               <>
                 <button
                   type="button"
                   onClick={approve}
-                  className="px-6 py-3 rounded-xl text-white font-semibold shadow"
+                  disabled={blockApprove}
+                  className="px-6 py-3 rounded-xl text-white font-semibold shadow disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ backgroundColor: accent }}
                 >
                   Approve estimate

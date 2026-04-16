@@ -15,6 +15,8 @@ import { calculateEstimateTotals, lineExtendedCents, type LineInput } from '@/li
 import type { ActivityEventType, EstimateStatus } from '@/lib/estimates/types';
 import { assertStatusTransition } from '@/lib/estimates/validation';
 import { getCatalogServicesByIds } from '@/lib/estimates/catalog-services';
+import { getCompanyPaymentSettings } from '@/lib/payments/company-settings';
+import { stripeConfigured, estimateDepositAmountCents, depositBlocksPublicApproval } from '@/lib/payments/policy';
 
 async function sendEmailWithMailboxFirst(
   clerkUserId: string | null | undefined,
@@ -838,6 +840,13 @@ export async function approveEstimateByToken(
     }
   }
 
+  const { depositBlocksPublicApproval } = await import('@/lib/payments/policy');
+  if (await depositBlocksPublicApproval(fresh)) {
+    throw new Error(
+      'Please pay the required deposit online to approve this estimate (use Pay deposit on the estimate page).',
+    );
+  }
+
   await sql`
     UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ${fresh.id as string}
@@ -875,8 +884,21 @@ export async function approveEstimateManually(id: string) {
   if (st === 'converted') throw new Error('Already converted');
   if (st === 'approved') return est;
   if (st === 'expired') throw new Error('Expired estimate must be duplicated or re-dated before approval');
-  await sql`UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}`;
-  await logActivity(id, 'manually_approved', {}, 'staff', null);
+  const { depositBlocksConvert } = await import('@/lib/payments/policy');
+  if (await depositBlocksConvert(est)) {
+    await sql`
+      UPDATE estimates SET
+        status = 'approved',
+        approved_at = datetime('now'),
+        deposit_status = 'waived',
+        updated_at = datetime('now')
+      WHERE id = ${id}
+    `;
+    await logActivity(id, 'manually_approved', { deposit: 'waived_by_staff' }, 'staff', null);
+  } else {
+    await sql`UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}`;
+    await logActivity(id, 'manually_approved', {}, 'staff', null);
+  }
   return getEstimateById(id);
 }
 
@@ -897,6 +919,11 @@ export async function convertEstimateToJob(estimateId: string): Promise<{ job: R
     throw new Error('Already converted');
   }
   if ((est.status as string) !== 'approved') throw new Error('Only approved estimates can be converted');
+
+  const { depositBlocksConvert } = await import('@/lib/payments/policy');
+  if (await depositBlocksConvert(est)) {
+    throw new Error('Deposit must be collected (or waived by staff approval) before converting to a job.');
+  }
 
   const companyId = est.company_id as string;
   const type = (est.title as string).slice(0, 120) || 'Estimate work';
@@ -1043,6 +1070,27 @@ export async function buildEstimatePresentation(estimateId: string, opts?: { int
   const settings = await ensureEstimateSettings(est.company_id as string);
   const publicUrl = `${publicAppBaseUrl()}/estimate/${est.customer_public_token}`;
 
+  const companyId = est.company_id as string;
+  const paySettings = await getCompanyPaymentSettings(companyId);
+  const depCents = estimateDepositAmountCents(est);
+  const depStat = String(est.deposit_status || 'none');
+  const stripeOn = stripeConfigured();
+  const mustPayBeforeApprove = await depositBlocksPublicApproval(est);
+  const payment = {
+    stripeSecretConfigured: stripeOn,
+    onlinePaymentsEnabled: paySettings.online_payments_enabled,
+    estimateDepositsEnabled: paySettings.estimate_deposits_enabled,
+    invoicePaymentsEnabled: paySettings.invoice_payments_enabled,
+    depositAmountCents: depCents,
+    depositStatus: depStat,
+    mustPayBeforeApprove,
+    depositCheckoutAvailable:
+      stripeOn &&
+      paySettings.online_payments_enabled &&
+      paySettings.estimate_deposits_enabled &&
+      depCents > 0,
+  };
+
   const estView = opts?.internal ? est : { ...est, notes_internal: undefined };
   const emailDraftInput: DeliverySendInput = {
     estimateId,
@@ -1079,6 +1127,7 @@ export async function buildEstimatePresentation(estimateId: string, opts?: { int
       allowCustomerReject: Boolean(Number(settings.allow_customer_reject)),
     },
     publicUrl,
+    payment,
     ...(emailDraft ? { emailDraft } : {}),
   };
 }

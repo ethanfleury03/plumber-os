@@ -97,6 +97,10 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount REAL NOT NULL,
   tax REAL DEFAULT 0,
   total REAL NOT NULL,
+  amount_cents INTEGER,
+  tax_cents INTEGER,
+  total_cents INTEGER,
+  public_pay_token TEXT NOT NULL DEFAULT (lower(hex(randomblob(16)))) UNIQUE,
   issue_date TEXT NOT NULL,
   due_date TEXT,
   paid_date TEXT,
@@ -104,6 +108,21 @@ CREATE TABLE IF NOT EXISTS invoices (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS invoice_line_items (
+  id TEXT PRIMARY KEY NOT NULL,
+  invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  description TEXT,
+  quantity REAL NOT NULL DEFAULT 1,
+  unit_price_cents INTEGER NOT NULL DEFAULT 0,
+  line_total_cents INTEGER NOT NULL DEFAULT 0,
+  catalog_service_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items(invoice_id);
 
 CREATE TABLE IF NOT EXISTS call_logs (
   id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
@@ -343,6 +362,8 @@ CREATE TABLE IF NOT EXISTS estimates (
   rejected_at TEXT,
   expired_at TEXT,
   converted_to_job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  deposit_status TEXT NOT NULL DEFAULT 'none',
+  deposit_paid_at TEXT,
   customer_public_token TEXT NOT NULL UNIQUE,
   version_number INTEGER NOT NULL DEFAULT 1,
   parent_estimate_id TEXT,
@@ -419,3 +440,48 @@ CREATE INDEX IF NOT EXISTS idx_estimates_created ON estimates(created_at);
 CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate ON estimate_line_items(estimate_id);
 CREATE INDEX IF NOT EXISTS idx_estimate_activity_estimate ON estimate_activity(estimate_id);
 CREATE INDEX IF NOT EXISTS idx_estimate_delivery_estimate ON estimate_delivery(estimate_id);
+
+-- Online payments (Stripe Checkout; platform account — see docs/STRIPE_PAYMENTS_ROLLOUT.md)
+CREATE TABLE IF NOT EXISTS company_payment_settings (
+  company_id TEXT PRIMARY KEY NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  online_payments_enabled INTEGER NOT NULL DEFAULT 0,
+  estimate_deposits_enabled INTEGER NOT NULL DEFAULT 0,
+  invoice_payments_enabled INTEGER NOT NULL DEFAULT 0,
+  deposit_due_timing TEXT NOT NULL DEFAULT 'with_approval',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  stripe_checkout_session_id TEXT,
+  stripe_payment_intent_id TEXT,
+  stripe_charge_id TEXT,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'usd',
+  status TEXT NOT NULL DEFAULT 'pending',
+  customer_email TEXT,
+  payment_url TEXT,
+  paid_at TEXT,
+  failed_at TEXT,
+  refunded_at TEXT,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_company_id ON payments(company_id);
+CREATE INDEX IF NOT EXISTS idx_payments_source ON payments(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_payments_checkout_session ON payments(stripe_checkout_session_id);
+
+CREATE TABLE IF NOT EXISTS payment_events (
+  id TEXT PRIMARY KEY NOT NULL,
+  stripe_event_id TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL,
+  payment_id TEXT REFERENCES payments(id) ON DELETE SET NULL,
+  processed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  payload_json TEXT
+);

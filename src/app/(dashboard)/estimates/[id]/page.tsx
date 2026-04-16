@@ -15,12 +15,24 @@ import {
   FileDown,
 } from 'lucide-react';
 
+type PaymentInfo = {
+  stripeSecretConfigured: boolean;
+  onlinePaymentsEnabled: boolean;
+  estimateDepositsEnabled: boolean;
+  invoicePaymentsEnabled: boolean;
+  depositAmountCents: number;
+  depositStatus: string;
+  mustPayBeforeApprove: boolean;
+  depositCheckoutAvailable: boolean;
+};
+
 type Presentation = {
   estimate: Record<string, unknown>;
   lineItems: Record<string, unknown>[];
   branding: Record<string, unknown>;
   publicUrl: string;
   approval?: { customerSignatureRequired: boolean; allowCustomerReject: boolean };
+  payment?: PaymentInfo;
   emailDraft?: {
     defaultSubject: string;
     defaultBody: string;
@@ -114,6 +126,7 @@ export default function EstimateDetailPage() {
             branding: prev.branding,
             publicUrl: prev.publicUrl,
             approval: prev.approval,
+            payment: prev.payment,
             emailDraft: prev.emailDraft,
           }
         : null,
@@ -596,6 +609,28 @@ export default function EstimateDetailPage() {
                 <dd className="font-mono tabular-nums text-gray-900 text-lg">{money(Number(e.total_amount_cents))}</dd>
               </div>
             </dl>
+            {data.payment &&
+            (data.payment.depositAmountCents > 0 || data.payment.estimateDepositsEnabled) ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm">
+                <h4 className="font-semibold text-amber-950 mb-1">Deposit &amp; online pay</h4>
+                <p className="text-amber-900">
+                  Deposit:{' '}
+                  <span className="font-mono font-medium">{money(data.payment.depositAmountCents)}</span>
+                </p>
+                <p className="text-amber-900 mt-1">
+                  Status:{' '}
+                  <span className="font-medium capitalize">{String(e.deposit_status || data.payment.depositStatus)}</span>
+                </p>
+                {!data.payment.stripeSecretConfigured ? (
+                  <p className="text-amber-800 text-xs mt-2">Stripe is not configured (server env).</p>
+                ) : null}
+                {data.payment.onlinePaymentsEnabled && data.payment.estimateDepositsEnabled ? (
+                  <p className="text-amber-800 text-xs mt-2">
+                    Customer pays on the public link below when the estimate is sent.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-3 no-print flex flex-wrap gap-2 items-center">
               <label className="text-xs font-medium text-gray-700">Discount (cents)</label>
               <input

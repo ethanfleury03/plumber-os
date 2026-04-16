@@ -1,5 +1,12 @@
+import { randomBytes } from 'crypto';
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import {
+  deleteInvoiceLineItems,
+  groupLineItemsByInvoiceId,
+  insertInvoiceLineItems,
+  listLineItemsForInvoiceIds,
+} from '@/lib/invoices/invoice-line-items';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
@@ -79,9 +86,18 @@ export async function GET(request: Request) {
     `;
 
     const rows = await dataQuery;
+    const invIds = rows.map((r) => String((r as Record<string, unknown>).id));
     const invoices = rows.map(mapInvoiceRow);
+    const lineRows = listLineItemsForInvoiceIds(invIds);
+    const byInvoice = groupLineItemsByInvoiceId(lineRows);
 
-    return NextResponse.json({ invoices, total });
+    return NextResponse.json({
+      invoices: invoices.map((inv, i) => ({
+        ...inv,
+        line_items: byInvoice.get(invIds[i]) ?? [],
+      })),
+      total,
+    });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
@@ -139,6 +155,16 @@ export async function POST(request: Request) {
       companyId = companies[0].id as string;
     }
 
+    type LineIn = {
+      name?: string;
+      description?: string | null;
+      quantity?: number;
+      unit_price_cents?: number;
+      catalog_service_id?: string | null;
+    };
+    const rawLines = Array.isArray(body.line_items) ? (body.line_items as LineIn[]) : [];
+    const useLines = rawLines.length > 0;
+
     if (!customerId && body.customer_name && companyId) {
       let existing: Record<string, unknown>[] = [];
       if (body.customer_phone) {
@@ -167,18 +193,73 @@ export async function POST(request: Request) {
       }
     }
 
-    const tax = toMoney(body.tax);
-    const total = toMoney(body.total, amount + tax);
+    let tax = toMoney(body.tax);
+    let total = toMoney(body.total);
+    let amountCents: number;
+    let taxCents: number;
+    let totalCents: number;
+    let normalizedLines: Array<{
+      name: string;
+      description: string | null;
+      quantity: number;
+      unit_price_cents: number;
+      catalog_service_id: string | null;
+    }> = [];
+
+    if (useLines) {
+      for (const line of rawLines) {
+        const name = String(line.name || '').trim();
+        const unit = Math.max(0, Math.round(Number(line.unit_price_cents) || 0));
+        const qty = Math.max(0.0001, Number(line.quantity) || 1);
+        if (!name || unit <= 0) {
+          return NextResponse.json({ error: 'Each line needs a name and a unit price greater than zero.' }, { status: 400 });
+        }
+        normalizedLines.push({
+          name,
+          description: line.description != null ? String(line.description).trim() || null : null,
+          quantity: qty,
+          unit_price_cents: unit,
+          catalog_service_id: line.catalog_service_id ? String(line.catalog_service_id) : null,
+        });
+      }
+      const subtotalCents = normalizedLines.reduce(
+        (s, it) => s + Math.round(it.quantity * it.unit_price_cents),
+        0,
+      );
+      if (subtotalCents <= 0) {
+        return NextResponse.json({ error: 'Invoice subtotal must be greater than zero.' }, { status: 400 });
+      }
+      tax = toMoney(body.tax);
+      taxCents = Math.round(tax * 100);
+      totalCents = subtotalCents + taxCents;
+      amountCents = subtotalCents;
+      const subtotalDollars = subtotalCents / 100;
+      total = totalCents / 100;
+      amount = subtotalDollars;
+      if (normalizedLines.length === 1) {
+        serviceType = normalizedLines[0].name;
+      } else {
+        serviceType = `Multiple services (${normalizedLines.length})`;
+      }
+    } else {
+      total = toMoney(body.total, amount + tax);
+      amountCents = Math.round(amount * 100);
+      taxCents = Math.round(tax * 100);
+      totalCents = Math.round(total * 100);
+    }
+
+    const publicPayToken = randomBytes(24).toString('hex');
     const issueDate = body.issue_date || body.date || todayIsoDate();
     const dueDate = body.due_date || null;
     const paidDate = body.status === 'paid' ? body.paid_date || todayIsoDate() : null;
 
     const invoiceNumber = await getNextInvoiceNumber();
 
-    await sql`
+    const inserted = await sql`
       INSERT INTO invoices (
         company_id, customer_id, job_id, invoice_number, service_type,
-        status, amount, tax, total, issue_date, due_date, paid_date, notes
+        status, amount, tax, total, amount_cents, tax_cents, total_cents, public_pay_token,
+        issue_date, due_date, paid_date, notes
       )
       VALUES (
         ${companyId},
@@ -190,12 +271,23 @@ export async function POST(request: Request) {
         ${amount},
         ${tax},
         ${total},
+        ${amountCents},
+        ${taxCents},
+        ${totalCents},
+        ${publicPayToken},
         ${issueDate},
         ${dueDate},
         ${paidDate},
         ${notes}
       )
+      RETURNING id
     `;
+
+    const invoiceId = String((inserted[0] as { id: string }).id);
+
+    if (useLines && normalizedLines.length > 0) {
+      await insertInvoiceLineItems(invoiceId, normalizedLines);
+    }
 
     const fullRows = await sql`
       SELECT
@@ -205,19 +297,69 @@ export async function POST(request: Request) {
         c.phone AS cust_phone
       FROM invoices i
       LEFT JOIN customers c ON i.customer_id = c.id
-      WHERE i.invoice_number = ${invoiceNumber}
+      WHERE i.id = ${invoiceId}
       LIMIT 1
     `;
 
-    return NextResponse.json({ invoice: mapInvoiceRow(fullRows[0]) });
+    const inv = mapInvoiceRow(fullRows[0]);
+    const lines = listLineItemsForInvoiceIds([invoiceId]).filter((r) => r.invoice_id === invoiceId);
+
+    return NextResponse.json({ invoice: { ...inv, line_items: lines } });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
+type LineInBody = {
+  name?: string;
+  description?: string | null;
+  quantity?: number;
+  unit_price_cents?: number;
+  catalog_service_id?: string | null;
+};
+
+function normalizeInvoiceLineItems(rawLines: LineInBody[]) {
+  const normalizedLines: Array<{
+    name: string;
+    description: string | null;
+    quantity: number;
+    unit_price_cents: number;
+    catalog_service_id: string | null;
+  }> = [];
+
+  for (const line of rawLines) {
+    const name = String(line.name || '').trim();
+    const unit = Math.max(0, Math.round(Number(line.unit_price_cents) || 0));
+    const qty = Math.max(0.0001, Number(line.quantity) || 1);
+    if (!name || unit <= 0) {
+      return {
+        error: 'Each line needs a name and a unit price greater than zero.',
+        normalizedLines: [] as typeof normalizedLines,
+        subtotalCents: 0,
+      };
+    }
+    normalizedLines.push({
+      name,
+      description: line.description != null ? String(line.description).trim() || null : null,
+      quantity: qty,
+      unit_price_cents: unit,
+      catalog_service_id: line.catalog_service_id ? String(line.catalog_service_id) : null,
+    });
+  }
+
+  const subtotalCents = normalizedLines.reduce(
+    (s, it) => s + Math.round(it.quantity * it.unit_price_cents),
+    0,
+  );
+  if (normalizedLines.length > 0 && subtotalCents <= 0) {
+    return { error: 'Invoice subtotal must be greater than zero.', normalizedLines, subtotalCents };
+  }
+  return { normalizedLines, subtotalCents };
+}
+
 export async function PUT(request: Request) {
   const body = await request.json();
-  const { id, ...updates } = body;
+  const { id, line_items: lineItemsInput, ...updates } = body;
 
   if (!id) {
     return NextResponse.json({ error: 'ID required' }, { status: 400 });
@@ -230,6 +372,49 @@ export async function PUT(request: Request) {
     }
     const cur = existing[0];
 
+    const pendingPay = await sql`
+      SELECT 1 FROM payments
+      WHERE source_type = 'invoice_payment' AND source_id = ${id} AND status = 'pending'
+      LIMIT 1
+    `;
+
+    const isLineItemsUpdate = Array.isArray(lineItemsInput);
+    const amountChanging =
+      updates.amount !== undefined ||
+      updates.tax !== undefined ||
+      updates.total !== undefined ||
+      isLineItemsUpdate;
+
+    if (pendingPay.length && amountChanging) {
+      return NextResponse.json(
+        { error: 'Cannot change invoice amounts while a payment session is pending. Wait for payment or cancel in Stripe.' },
+        { status: 409 },
+      );
+    }
+
+    let normalizedFromLines: ReturnType<typeof normalizeInvoiceLineItems>['normalizedLines'] | null =
+      null;
+    let subtotalCentsFromLines: number | null = null;
+    let serviceTypeFromLines: string | null = null;
+
+    if (isLineItemsUpdate) {
+      const rawLines = lineItemsInput as LineInBody[];
+      if (rawLines.length === 0) {
+        return NextResponse.json({ error: 'Add at least one line item.' }, { status: 400 });
+      }
+      const parsed = normalizeInvoiceLineItems(rawLines);
+      if (parsed.error) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      normalizedFromLines = parsed.normalizedLines;
+      subtotalCentsFromLines = parsed.subtotalCents;
+      if (normalizedFromLines.length === 1) {
+        serviceTypeFromLines = normalizedFromLines[0].name;
+      } else {
+        serviceTypeFromLines = `Multiple services (${normalizedFromLines.length})`;
+      }
+    }
+
     let paidDate: string | null = (cur.paid_date as string | null) ?? null;
     if (updates.status === 'paid') {
       paidDate = (updates.paid_date as string) || todayIsoDate();
@@ -239,17 +424,38 @@ export async function PUT(request: Request) {
       paidDate = updates.paid_date as string | null;
     }
 
+    const nextAmount = isLineItemsUpdate
+      ? (subtotalCentsFromLines as number) / 100
+      : toMoney(updates.amount !== undefined ? updates.amount : cur.amount);
+    const nextTax = toMoney(updates.tax !== undefined ? updates.tax : cur.tax);
+    const nextTaxCents = Math.round(nextTax * 100);
+    const nextAmountCents = isLineItemsUpdate
+      ? (subtotalCentsFromLines as number)
+      : Math.round(nextAmount * 100);
+    const nextTotalCents = isLineItemsUpdate
+      ? (subtotalCentsFromLines as number) + nextTaxCents
+      : Math.round(
+          toMoney(
+            updates.total !== undefined ? updates.total : cur.total,
+            nextAmount + nextTax,
+          ) * 100,
+        );
+    const nextTotal = nextTotalCents / 100;
+
     await sql`
       UPDATE invoices SET
         company_id = ${updates.company_id ?? cur.company_id},
         customer_id = ${updates.customer_id ?? cur.customer_id},
         job_id = ${updates.job_id ?? cur.job_id},
         invoice_number = ${updates.invoice_number ?? cur.invoice_number},
-        service_type = ${updates.service_type ?? cur.service_type},
+        service_type = ${isLineItemsUpdate ? serviceTypeFromLines : (updates.service_type ?? cur.service_type)},
         status = ${updates.status ?? cur.status},
-        amount = ${updates.amount ?? cur.amount},
-        tax = ${updates.tax ?? cur.tax},
-        total = ${updates.total ?? cur.total},
+        amount = ${nextAmount},
+        tax = ${nextTax},
+        total = ${nextTotal},
+        amount_cents = ${nextAmountCents},
+        tax_cents = ${nextTaxCents},
+        total_cents = ${nextTotalCents},
         issue_date = ${updates.issue_date ?? cur.issue_date},
         due_date = ${updates.due_date ?? cur.due_date},
         paid_date = ${paidDate},
@@ -257,6 +463,11 @@ export async function PUT(request: Request) {
         updated_at = datetime('now')
       WHERE id = ${id}
     `;
+
+    if (isLineItemsUpdate && normalizedFromLines && normalizedFromLines.length > 0) {
+      await deleteInvoiceLineItems(id);
+      await insertInvoiceLineItems(id, normalizedFromLines);
+    }
 
     const fullRows = await sql`
       SELECT
@@ -270,7 +481,9 @@ export async function PUT(request: Request) {
       LIMIT 1
     `;
 
-    return NextResponse.json({ invoice: mapInvoiceRow(fullRows[0]) });
+    const inv = mapInvoiceRow(fullRows[0]);
+    const lineRows = listLineItemsForInvoiceIds([id]).filter((r) => r.invoice_id === id);
+    return NextResponse.json({ invoice: { ...inv, line_items: lineRows } });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }

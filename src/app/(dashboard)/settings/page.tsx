@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { Bell, User, Building, CreditCard, Palette, Save, Loader2, Check } from 'lucide-react';
 
 
@@ -17,6 +18,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [payInfo, setPayInfo] = useState<{
+    stripeSecretConfigured: boolean;
+    onlinePaymentsEnabled: boolean;
+  } | null>(null);
   
   // Form state
   const [profile, setProfile] = useState({
@@ -50,6 +55,20 @@ export default function SettingsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  useEffect(() => {
+    fetch('/api/company/payment-settings')
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.settings) {
+          setPayInfo({
+            stripeSecretConfigured: Boolean(j.stripeSecretConfigured),
+            onlinePaymentsEnabled: Boolean(j.settings.online_payments_enabled),
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="flex flex-1 flex-col min-h-0 bg-gray-100">
@@ -260,6 +279,37 @@ export default function SettingsPage() {
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing & Subscription</h2>
                   <div className="space-y-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800">
+                      <h3 className="font-medium text-gray-900 mb-2">Customer payments (Stripe)</h3>
+                      {payInfo ? (
+                        <ul className="list-disc pl-5 space-y-1 text-gray-700">
+                          <li>
+                            Stripe secret key:{' '}
+                            {payInfo.stripeSecretConfigured ? (
+                              <span className="text-green-700 font-medium">configured</span>
+                            ) : (
+                              <span className="text-amber-700 font-medium">not set (add STRIPE_SECRET_KEY)</span>
+                            )}
+                          </li>
+                          <li>
+                            Company online payments:{' '}
+                            {payInfo.onlinePaymentsEnabled ? 'enabled' : 'disabled'} (see Estimates → Defaults)
+                          </li>
+                        </ul>
+                      ) : (
+                        <p className="text-gray-600">Loading…</p>
+                      )}
+                      <p className="mt-3">
+                        <Link href="/estimates/settings" className="text-blue-600 hover:underline font-medium">
+                          Configure deposit & invoice collection →
+                        </Link>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Webhook: <code className="bg-gray-100 px-1 rounded">/api/stripe/webhook</code> · Set{' '}
+                        <code className="bg-gray-100 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> and{' '}
+                        <code className="bg-gray-100 px-1 rounded">APP_BASE_URL</code> on the server.
+                      </p>
+                    </div>
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <div className="flex items-center justify-between">
                         <div>
