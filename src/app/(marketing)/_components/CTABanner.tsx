@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import { Show } from '@clerk/nextjs';
 import { ArrowRight, PhoneCall } from 'lucide-react';
+import { getDemoOrSalesHref, getSalesMailto } from '@/lib/marketing/cta';
 
 export function CTABanner() {
+  const bookDemoHref = getDemoOrSalesHref();
+  const bookDemoExternal = bookDemoHref.startsWith('http');
+
   return (
     <section className="relative py-24 overflow-hidden">
       <div className="absolute inset-0 brand-hero-bg" />
@@ -33,7 +37,11 @@ export function CTABanner() {
               Start free trial
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a href="mailto:sales@plumber.os" className="btn-ghost text-base">
+            <a
+              href={bookDemoHref}
+              className="btn-ghost text-base"
+              {...(bookDemoExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            >
               Book a demo
             </a>
           </Show>
@@ -42,7 +50,7 @@ export function CTABanner() {
               Open your dashboard
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a href="mailto:sales@plumber.os" className="btn-ghost text-base">
+            <a href={getSalesMailto()} className="btn-ghost text-base">
               Talk to sales
             </a>
           </Show>

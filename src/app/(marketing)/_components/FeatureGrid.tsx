@@ -95,7 +95,6 @@ const TILES = [
 ];
 
 export function FeatureGrid() {
-  const shown = TILES.slice(0, 12);
   return (
     <section id="features" className="py-24 bg-[var(--brand-cream-2)] relative">
       <div className="grid-dots absolute inset-0 opacity-60 pointer-events-none" />
@@ -112,7 +111,7 @@ export function FeatureGrid() {
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {shown.map(({ icon: Icon, title, body }) => (
+          {TILES.map(({ icon: Icon, title, body }) => (
             <div key={title} className="feature-tile">
               <span className="tile-icon">
                 <Icon className="h-5 w-5" />

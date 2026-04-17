@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { Check, Minus } from 'lucide-react';
+import { getSalesMailto } from '@/lib/marketing/cta';
 
 type Cadence = 'monthly' | 'annual';
 
@@ -70,7 +71,7 @@ const TIERS: Tier[] = [
       'Custom data export + API access',
     ],
     cta: 'Talk to sales',
-    ctaHref: 'mailto:sales@plumber.os',
+    ctaHref: getSalesMailto(),
   },
 ];
 

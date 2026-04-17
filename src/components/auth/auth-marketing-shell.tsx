@@ -1,14 +1,15 @@
 'use client';
 
-import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { SignIn } from '@clerk/nextjs';
+import type { ReactNode } from 'react';
 import { Wrench } from 'lucide-react';
 
-function ClerkLoginShell() {
-  const sp = useSearchParams();
-  const nextPath = sp.get('next') || '/';
-
+export function AuthMarketingShell({
+  subtitle,
+  children,
+}: {
+  subtitle: string;
+  children: ReactNode;
+}) {
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4"
@@ -52,45 +53,10 @@ function ClerkLoginShell() {
           >
             PlumberOS
           </h1>
-          <p className="text-slate-400 text-sm mt-1 text-center">Sign in to continue</p>
+          <p className="text-slate-400 text-sm mt-1 text-center">{subtitle}</p>
         </div>
-
-        <SignIn
-          routing="path"
-          path="/login"
-          signUpUrl="/login"
-          forceRedirectUrl={nextPath}
-          signUpForceRedirectUrl={nextPath}
-          appearance={{
-            variables: {
-              colorPrimary: '#3b82f6',
-              colorBackground: 'rgba(15,23,42,0.95)',
-              colorInputBackground: 'rgba(255,255,255,0.06)',
-            },
-            elements: {
-              rootBox: 'w-full flex justify-center',
-              card: 'bg-slate-900/90 backdrop-blur-xl border border-white/10 shadow-2xl',
-              headerTitle: 'text-white',
-              headerSubtitle: 'text-slate-400',
-              socialButtonsBlockButton: 'border-white/15 text-white',
-              formButtonPrimary: 'bg-gradient-to-r from-blue-500 to-indigo-600',
-              footerActionLink: 'text-blue-400',
-            },
-          }}
-        />
+        {children}
       </div>
     </div>
-  );
-}
-
-export function LoginClient() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-400">Loading…</div>
-      }
-    >
-      <ClerkLoginShell />
-    </Suspense>
   );
 }

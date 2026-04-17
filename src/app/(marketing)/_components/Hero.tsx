@@ -141,6 +141,9 @@ export function Hero() {
               </div>
             ))}
           </div>
+          <p className="trust-mark text-center mt-4 text-[11px] text-white/40 max-w-2xl mx-auto">
+            Names shown are illustrative placeholders for marketing, not endorsements.
+          </p>
         </div>
       </div>
 

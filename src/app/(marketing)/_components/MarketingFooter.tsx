@@ -2,30 +2,49 @@ import Link from 'next/link';
 import { Wrench, Twitter, Linkedin, Github } from 'lucide-react';
 
 const PRODUCT_LINKS = [
-  { label: 'AI Receptionist', href: '#spotlight-receptionist' },
-  { label: 'Dispatch & Mobile', href: '#spotlight-dispatch' },
-  { label: 'Estimates & Invoices', href: '#spotlight-payments' },
-  { label: 'Customer Portal', href: '#spotlight-portal' },
-  { label: 'Reports', href: '#features' },
-  { label: 'Pricing', href: '#pricing' },
+  { label: 'AI Receptionist', href: '/#spotlight-receptionist' },
+  { label: 'Dispatch & Mobile', href: '/#spotlight-dispatch' },
+  { label: 'Estimates & Invoices', href: '/#spotlight-payments' },
+  { label: 'Customer Portal', href: '/#spotlight-portal' },
+  { label: 'Reports', href: '/#features' },
+  { label: 'Pricing', href: '/#pricing' },
 ];
 
-const COMPANY_LINKS = [
-  { label: 'About', href: '#' },
-  { label: 'Customers', href: '#customers' },
-  { label: 'Blog', href: '#' },
-  { label: 'Careers', href: '#' },
-  { label: 'Contact sales', href: 'mailto:sales@plumber.os' },
-];
+function salesMailto(): string {
+  const email = process.env.NEXT_PUBLIC_SALES_EMAIL?.trim() || 'sales@plumber.os';
+  return `mailto:${email}`;
+}
 
-const LEGAL_LINKS = [
-  { label: 'Terms of service', href: '#' },
-  { label: 'Privacy policy', href: '#' },
-  { label: 'DPA', href: '#' },
-  { label: 'Security', href: '#' },
-];
+function pickUrl(env: string | undefined, fallback: string): string {
+  const v = env?.trim();
+  return v || fallback;
+}
 
 export function MarketingFooter() {
+  const twitter = process.env.NEXT_PUBLIC_SOCIAL_TWITTER?.trim();
+  const linkedin = process.env.NEXT_PUBLIC_SOCIAL_LINKEDIN?.trim();
+  const github = process.env.NEXT_PUBLIC_SOCIAL_GITHUB?.trim();
+  const hasSocial = Boolean(twitter || linkedin || github);
+
+  const aboutHref = process.env.NEXT_PUBLIC_COMPANY_ABOUT_URL?.trim() || '/about';
+  const blogHref = process.env.NEXT_PUBLIC_BLOG_URL?.trim();
+  const careersHref = process.env.NEXT_PUBLIC_CAREERS_URL?.trim();
+
+  const companyLinks: { label: string; href: string }[] = [
+    { label: 'About', href: aboutHref },
+    { label: 'Customers', href: '/#customers' },
+    ...(blogHref ? [{ label: 'Blog', href: blogHref }] : []),
+    ...(careersHref ? [{ label: 'Careers', href: careersHref }] : []),
+    { label: 'Contact sales', href: salesMailto() },
+  ];
+
+  const legalLinks = [
+    { label: 'Terms of service', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_TERMS_URL, '/legal/terms') },
+    { label: 'Privacy policy', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_PRIVACY_URL, '/legal/privacy') },
+    { label: 'DPA', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_DPA_URL, '/legal/dpa') },
+    { label: 'Security', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_SECURITY_URL, '/legal/security') },
+  ];
+
   return (
     <footer className="bg-[var(--brand-navy-900)] text-white/70">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -41,29 +60,43 @@ export function MarketingFooter() {
               The operating system for modern plumbing companies. Capture every call, dispatch the right tech, and
               get paid faster.
             </p>
-            <div className="mt-6 flex items-center gap-3">
-              <a
-                href="#"
-                aria-label="Twitter"
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
-              >
-                <Twitter className="h-4 w-4" />
-              </a>
-              <a
-                href="#"
-                aria-label="LinkedIn"
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
-              >
-                <Linkedin className="h-4 w-4" />
-              </a>
-              <a
-                href="#"
-                aria-label="GitHub"
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
-              >
-                <Github className="h-4 w-4" />
-              </a>
-            </div>
+            {hasSocial ? (
+              <div className="mt-6 flex items-center gap-3">
+                {twitter ? (
+                  <a
+                    href={twitter}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Twitter"
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
+                  >
+                    <Twitter className="h-4 w-4" />
+                  </a>
+                ) : null}
+                {linkedin ? (
+                  <a
+                    href={linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="LinkedIn"
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
+                  >
+                    <Linkedin className="h-4 w-4" />
+                  </a>
+                ) : null}
+                {github ? (
+                  <a
+                    href={github}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="GitHub"
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-white/10 hover:bg-white/5"
+                  >
+                    <Github className="h-4 w-4" />
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -82,7 +115,7 @@ export function MarketingFooter() {
           <div>
             <h4 className="text-sm font-semibold text-white mb-4">Company</h4>
             <ul className="space-y-2 text-sm">
-              {COMPANY_LINKS.map((l) => (
+              {companyLinks.map((l) => (
                 <li key={l.label}>
                   <a href={l.href} className="hover:text-white transition-colors">
                     {l.label}
@@ -95,7 +128,7 @@ export function MarketingFooter() {
           <div>
             <h4 className="text-sm font-semibold text-white mb-4">Legal</h4>
             <ul className="space-y-2 text-sm">
-              {LEGAL_LINKS.map((l) => (
+              {legalLinks.map((l) => (
                 <li key={l.label}>
                   <a href={l.href} className="hover:text-white transition-colors">
                     {l.label}

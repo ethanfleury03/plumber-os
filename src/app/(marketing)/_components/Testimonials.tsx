@@ -41,6 +41,10 @@ export function Testimonials() {
             <h2 className="mt-4 text-3xl sm:text-4xl font-extrabold tracking-tight">
               Shops on PlumberOS close faster, stay booked, and sleep more.
             </h2>
+            <p className="mt-3 text-xs text-[var(--brand-slate-muted)] max-w-xl">
+              Quotes and stats below are composite marketing examples for illustration, not verified customer
+              metrics.
+            </p>
           </div>
           <div className="lg:col-span-5">
             <div className="stat-bar">

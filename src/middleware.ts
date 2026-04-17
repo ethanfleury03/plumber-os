@@ -6,6 +6,8 @@ const isPublicRoute = createRouteMatcher([
   '/login(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/about(.*)',
+  '/legal(.*)',
   '/estimate/(.*)',
   '/pay/(.*)',
   '/portal/(.*)',
@@ -30,8 +32,9 @@ export default clerkMiddleware(async (auth, req) => {
     if (url.pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    url.pathname = '/login';
-    url.searchParams.set('redirect_url', req.nextUrl.pathname);
+    url.pathname = '/sign-in';
+    const returnPath = req.nextUrl.pathname + (req.nextUrl.search || '');
+    url.searchParams.set('redirect_url', returnPath);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
