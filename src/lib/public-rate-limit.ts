@@ -47,7 +47,23 @@ export function publicActionKey(request: Request, token: string, action: string)
 }
 
 export function publicRateLimitConfig(): { max: number; windowMs: number } {
-  const max = Math.max(5, parseInt(process.env.PUBLIC_ESTIMATE_RATE_LIMIT_MAX || '40', 10));
-  const windowSec = Math.max(10, parseInt(process.env.PUBLIC_ESTIMATE_RATE_LIMIT_WINDOW_SEC || '60', 10));
+  const max = Math.max(
+    5,
+    parseInt(
+      process.env.PUBLIC_ACTION_RATE_LIMIT_MAX ||
+        process.env.PUBLIC_ESTIMATE_RATE_LIMIT_MAX ||
+        '40',
+      10,
+    ),
+  );
+  const windowSec = Math.max(
+    10,
+    parseInt(
+      process.env.PUBLIC_ACTION_RATE_LIMIT_WINDOW_SEC ||
+        process.env.PUBLIC_ESTIMATE_RATE_LIMIT_WINDOW_SEC ||
+        '60',
+      10,
+    ),
+  );
   return { max, windowMs: windowSec * 1000 };
 }

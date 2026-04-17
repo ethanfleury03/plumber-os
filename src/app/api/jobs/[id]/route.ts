@@ -1,5 +1,6 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { requirePortalUser } from '@/lib/auth/tenant';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
@@ -8,6 +9,10 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const { id } = await params;
   try {
     const jobRows = await sql`
@@ -21,7 +26,7 @@ export async function GET(
       FROM jobs j
       LEFT JOIN customers c ON j.customer_id = c.id
       LEFT JOIN leads l ON j.lead_id = l.id
-      WHERE j.id = ${id}
+      WHERE j.id = ${id} AND j.company_id = ${portal.companyId}
     `;
     if (jobRows.length === 0) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
@@ -32,14 +37,15 @@ export async function GET(
     if (sourceId) {
       const se = await sql`
         SELECT id, estimate_number, title, status, total_amount_cents, customer_public_token
-        FROM estimates WHERE id = ${sourceId}
+        FROM estimates WHERE id = ${sourceId} AND company_id = ${portal.companyId}
       `;
       sourceEstimate = (se[0] as Record<string, unknown>) ?? null;
     }
     const estimates = await sql`
       SELECT id, estimate_number, title, status, total_amount_cents, created_at, job_id, converted_to_job_id, customer_public_token
       FROM estimates
-      WHERE job_id = ${id} OR converted_to_job_id = ${id}
+      WHERE (job_id = ${id} OR converted_to_job_id = ${id})
+        AND company_id = ${portal.companyId}
       ORDER BY created_at DESC
     `;
     return NextResponse.json({

@@ -1,11 +1,17 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { requirePortalUser } from '@/lib/auth/tenant';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
 
 // GET - Fetch customers
 export async function GET(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '10');
@@ -22,10 +28,14 @@ export async function GET(request: Request) {
         MAX(j.created_at) as last_job_date
       FROM customers c
       LEFT JOIN jobs j ON c.id = j.customer_id
-      WHERE 1=1
+      WHERE c.company_id = ${portal.companyId}
     `;
     
-    let countQuery = sql`SELECT COUNT(*) as total FROM customers c WHERE 1=1`;
+    let countQuery = sql`
+      SELECT COUNT(*) as total
+      FROM customers c
+      WHERE c.company_id = ${portal.companyId}
+    `;
     
     if (search) {
       query = sql`${query} AND (c.name ILIKE ${'%' + search + '%'} OR c.email ILIKE ${'%' + search + '%'} OR c.phone ILIKE ${'%' + search + '%'} OR c.address ILIKE ${'%' + search + '%'})`;
@@ -54,29 +64,18 @@ export async function GET(request: Request) {
 
 // POST - Create customer
 export async function POST(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   
   try {
-    // Get or create default company
-    let companyId = body.company_id;
-    if (!companyId) {
-      const companies = await sql`SELECT id FROM companies LIMIT 1`;
-      if (companies.length > 0) {
-        companyId = companies[0].id;
-      } else {
-        const newCompany = await sql`
-          INSERT INTO companies (name, email)
-          VALUES ('Demo Company', 'demo@plumberos.com')
-          RETURNING id
-        `;
-        companyId = newCompany[0].id;
-      }
-    }
-
     const result = await sql`
       INSERT INTO customers (company_id, name, email, phone, address, notes)
       VALUES (
-        ${companyId},
+        ${portal.companyId},
         ${body.name},
         ${body.email || null},
         ${body.phone},
@@ -95,6 +94,11 @@ export async function POST(request: Request) {
 
 // PUT - Update customer
 export async function PUT(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -103,6 +107,15 @@ export async function PUT(request: Request) {
   }
 
   try {
+    const existing = await sql`
+      SELECT id FROM customers
+      WHERE id = ${id} AND company_id = ${portal.companyId}
+      LIMIT 1
+    `;
+    if (!existing.length) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
     const result = await sql`
       UPDATE customers 
       SET name = ${updates.name || null},
@@ -111,7 +124,7 @@ export async function PUT(request: Request) {
           address = ${updates.address || null},
           notes = ${updates.notes || null},
           updated_at = NOW()
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${portal.companyId}
       RETURNING *
     `;
 
@@ -124,6 +137,11 @@ export async function PUT(request: Request) {
 
 // DELETE - Delete customer
 export async function DELETE(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -132,7 +150,16 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await sql`DELETE FROM customers WHERE id = ${id}`;
+    const existing = await sql`
+      SELECT id FROM customers
+      WHERE id = ${id} AND company_id = ${portal.companyId}
+      LIMIT 1
+    `;
+    if (!existing.length) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
+    await sql`DELETE FROM customers WHERE id = ${id} AND company_id = ${portal.companyId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createEstimateBodySchema } from '@/lib/estimates/validation';
-import { createEstimate, getDefaultCompanyId, listEstimates } from '@/lib/estimates/service';
+import { createEstimate, listEstimates } from '@/lib/estimates/service';
+import { requirePortalUser } from '@/lib/auth/tenant';
 
 export async function GET(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
-    const companyId = (searchParams.get('company_id') || (await getDefaultCompanyId())) as string;
     const status = searchParams.get('status');
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1', 10);
@@ -13,7 +18,7 @@ export async function GET(request: Request) {
     const customer_id = searchParams.get('customer_id');
     const lead_id = searchParams.get('lead_id');
     const data = await listEstimates({
-      companyId,
+      companyId: portal.companyId,
       status,
       search,
       page,
@@ -29,10 +34,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const body = createEstimateBodySchema.parse(await request.json());
     const est = await createEstimate({
-      company_id: body.company_id,
+      company_id: portal.companyId,
       title: body.title,
       description: body.description ?? null,
       customer_id: body.customer_id ?? null,

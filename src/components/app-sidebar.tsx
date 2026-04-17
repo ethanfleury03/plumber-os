@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useClerk } from '@clerk/nextjs';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -24,6 +24,8 @@ import {
   ClipboardList,
   Wrench,
   LogOut,
+  BarChart3,
+  Truck,
 } from 'lucide-react';
 import type { SessionUser } from '@/lib/auth/types';
 import clsx from 'clsx';
@@ -36,20 +38,22 @@ const CRM_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 ];
 
 const PRIMARY_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/app', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/estimates', label: 'Estimates', icon: ClipboardList },
+  { href: '/dispatch', label: 'Dispatch', icon: Truck },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/map', label: 'Map', icon: MapPin },
   { href: '/team', label: 'Team', icon: UserCog },
   { href: '/calls', label: 'Calls', icon: Phone },
   { href: '/receptionist', label: 'Receptionist', icon: Headphones },
+  { href: '/reports', label: 'Reports', icon: BarChart3 },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 function navItemIsActive(pathname: string, href: string) {
-  if (href === '/') {
-    return pathname === '/';
+  if (href === '/app') {
+    return pathname === '/app';
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -82,8 +86,8 @@ type AppSidebarProps = {
 
 export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
   const pathname = usePathname() || '';
-  const [crmOpen, setCrmOpen] = useState(() => isCrmSectionPath(pathname));
-  const prevPathname = useRef(pathname);
+  const crmSectionActive = isCrmSectionPath(pathname);
+  const [crmOpenOverride, setCrmOpenOverride] = useState<boolean | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
@@ -95,25 +99,12 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const prev = prevPathname.current;
-    const wasIn = isCrmSectionPath(prev);
-    const nowIn = isCrmSectionPath(pathname);
-    if (!wasIn && nowIn) {
-      setCrmOpen(true);
-    }
-    if (wasIn && !nowIn) {
-      setCrmOpen(false);
-    }
-    prevPathname.current = pathname;
-  }, [pathname]);
-
-  const crmSectionActive = isCrmSectionPath(pathname);
+  const crmOpen = crmOpenOverride ?? crmSectionActive;
 
   return (
     <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
       <div className="p-5 relative z-10">
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/app" className="flex items-center gap-3">
           <div className="sidebar-logo w-10 h-10 rounded-xl flex items-center justify-center shadow-lg">
             <span className="text-lg font-bold">P</span>
           </div>
@@ -147,7 +138,13 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
         <div className="mb-1">
           <button
             type="button"
-            onClick={() => setCrmOpen((open) => !open)}
+            onClick={() =>
+              setCrmOpenOverride((previous) => {
+                const current = previous ?? crmSectionActive;
+                const next = !current;
+                return next === crmSectionActive ? null : next;
+              })
+            }
             aria-expanded={crmOpen}
             className={clsx(
               'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left',

@@ -16,6 +16,104 @@ CREATE TABLE IF NOT EXISTS companies (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS branches (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  code TEXT,
+  phone TEXT,
+  address TEXT,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_branches_company_id ON branches(company_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_company_primary
+  ON branches(company_id)
+  WHERE is_primary = 1;
+
+CREATE TABLE IF NOT EXISTS user_memberships (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  user_id TEXT NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  role TEXT NOT NULL DEFAULT 'staff',
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_memberships_user_id ON user_memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_memberships_company_id ON user_memberships(company_id);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  role TEXT NOT NULL,
+  permission TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'company',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(role, permission, scope)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  actor_user_id TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  payload_json TEXT,
+  ip_address TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_company_id ON audit_logs(company_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_branch_id ON audit_logs(branch_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  created_by_user_id TEXT,
+  last_used_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_company_id ON api_keys(company_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_branch_id ON api_keys(branch_id);
+
+CREATE TABLE IF NOT EXISTS integration_connections (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL,
+  external_account_id TEXT,
+  status TEXT NOT NULL DEFAULT 'disconnected',
+  config_json TEXT,
+  last_synced_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_integration_connections_company_id
+  ON integration_connections(company_id);
+CREATE INDEX IF NOT EXISTS idx_integration_connections_branch_id
+  ON integration_connections(branch_id);
+
+CREATE TABLE IF NOT EXISTS invoice_number_sequences (
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  year INTEGER NOT NULL,
+  last_seq INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (company_id, year)
+);
+
 CREATE TABLE IF NOT EXISTS plumbers (
   id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
   company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

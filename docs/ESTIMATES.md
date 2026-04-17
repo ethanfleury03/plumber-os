@@ -24,7 +24,7 @@ Office staff and technicians can build line-item estimates, preview a customer-f
 - **Resend:** set `RESEND_API_KEY` and `ESTIMATE_FROM_EMAIL` so **Send / log delivery** can send real email when channel is email or **auto** and a recipient email exists.
 - **Twilio SMS:** set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` (or `TWILIO_FROM_NUMBER`) for SMS channel or **auto** when only a phone is available.
 - **Legacy:** `ESTIMATE_DELIVERY_PROVIDER` — `mock` (default), `console`, or stub behavior via `src/lib/estimates/delivery.ts`.
-- **Public link base:** `APP_BASE_URL` or `NEXT_PUBLIC_APP_BASE_URL` (fallback `http://localhost:3001`) for links in copy/email/SMS bodies.
+- **Public link base:** `APP_BASE_URL` or `NEXT_PUBLIC_APP_BASE_URL` (fallback `http://localhost:3003`) for links in copy/email/SMS bodies.
 - **PDF:** staff can use **Download PDF** on the estimate detail page (`GET /api/estimates/[id]/pdf`).
 - **Public rate limits:** optional `PUBLIC_ESTIMATE_RATE_LIMIT_MAX` and `PUBLIC_ESTIMATE_RATE_LIMIT_WINDOW_SEC` (see `src/lib/public-rate-limit.ts`).
 

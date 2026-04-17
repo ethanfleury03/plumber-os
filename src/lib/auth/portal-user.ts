@@ -20,13 +20,18 @@ export async function getPortalUser(): Promise<SessionUser | null> {
   const meta = user.publicMetadata as Record<string, unknown> | undefined;
   const roleMeta = meta?.role as SessionUser['role'] | undefined;
   const companyMeta = meta?.companyId as string | undefined;
+  const branchMeta = meta?.branchId as string | undefined;
 
   let companyId = companyMeta?.trim() || '';
-  let role: SessionUser['role'] = roleMeta || 'admin';
+  let branchId = branchMeta?.trim() || '';
+  let role: SessionUser['role'] = roleMeta || 'staff';
   let portalRowId: string | null = null;
 
   const rows = await sql`
-    SELECT id, company_id, role FROM portal_users WHERE lower(email) = ${email.toLowerCase()} LIMIT 1
+    SELECT id, company_id, role FROM portal_users
+    WHERE clerk_user_id = ${userId} OR lower(email) = ${email.toLowerCase()}
+    ORDER BY (clerk_user_id = ${userId}) DESC
+    LIMIT 1
   `;
   const row = rows[0] as { id?: string; company_id?: string; role?: string } | undefined;
   if (row) {
@@ -35,9 +40,35 @@ export async function getPortalUser(): Promise<SessionUser | null> {
     if (row.role) role = row.role as SessionUser['role'];
   }
 
+  if (portalRowId && companyId) {
+    const memberships = await sql`
+      SELECT branch_id, role
+      FROM user_memberships
+      WHERE user_id = ${portalRowId}
+        AND company_id = ${companyId}
+        AND status = 'active'
+      ORDER BY CASE WHEN branch_id IS NULL THEN 1 ELSE 0 END, datetime(created_at) ASC
+      LIMIT 1
+    `;
+    const membership = memberships[0] as { branch_id?: string; role?: string } | undefined;
+    if (membership?.branch_id) branchId = String(membership.branch_id);
+    if (membership?.role) role = membership.role as SessionUser['role'];
+  }
+
   if (!companyId) {
     const c = await sql`SELECT id FROM companies ORDER BY datetime(created_at) LIMIT 1`;
     companyId = String((c[0] as { id?: string } | undefined)?.id || '');
+  }
+
+  if (!branchId && companyId) {
+    const branches = await sql`
+      SELECT id
+      FROM branches
+      WHERE company_id = ${companyId}
+      ORDER BY is_primary DESC, datetime(created_at) ASC
+      LIMIT 1
+    `;
+    branchId = String((branches[0] as { id?: string } | undefined)?.id || '');
   }
 
   const name =
@@ -58,6 +89,7 @@ export async function getPortalUser(): Promise<SessionUser | null> {
     name,
     role,
     companyId,
+    branchId: branchId || null,
     avatarInitials: initials,
   };
 }

@@ -4,6 +4,11 @@ import { sql } from '@/lib/db';
 import { invoiceAmountsCents } from '@/lib/payments/invoice-money';
 import { createInvoicePaymentCheckoutSession } from '@/lib/payments/payment-service';
 import { invoicePaymentsAllowed } from '@/lib/payments/policy';
+import {
+  consumePublicRateLimit,
+  publicActionKey,
+  publicRateLimitConfig,
+} from '@/lib/public-rate-limit';
 
 const bodySchema = z.object({
   email: z.string().email().optional(),
@@ -14,6 +19,19 @@ type Ctx = { params: Promise<{ token: string }> };
 export async function POST(request: Request, ctx: Ctx) {
   try {
     const { token } = await ctx.params;
+    const { max, windowMs } = publicRateLimitConfig();
+    const rl = consumePublicRateLimit(
+      publicActionKey(request, token, 'invoice-checkout'),
+      max,
+      windowMs,
+    );
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many requests. Try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+      );
+    }
+
     const rows = await sql`
       SELECT * FROM invoices WHERE public_pay_token = ${token} LIMIT 1
     `;

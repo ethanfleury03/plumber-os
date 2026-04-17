@@ -121,7 +121,7 @@ export function getAppBaseUrl() {
   return (
     process.env.APP_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    'http://localhost:3000'
+    'http://localhost:3003'
   ).replace(/\/$/, '');
 }
 
@@ -225,7 +225,8 @@ export async function handleTwilioInboundVoice(params: {
     };
   }
 
-  const settings = await ensureReceptionistSettings();
+  const companyIdForCall = await getCompanyIdForReceptionist(params.to);
+  const settings = await ensureReceptionistSettings(companyIdForCall);
   const agentId =
     (settings.retell_agent_id && settings.retell_agent_id.trim()) ||
     process.env.RETELL_AGENT_ID ||
@@ -244,6 +245,7 @@ export async function handleTwilioInboundVoice(params: {
       twilioCallSid: params.twilioCallSid,
       fromPhone: params.from,
       toPhone: params.to,
+      companyId: companyIdForCall,
     });
     await logReceptionistEvent(row.id as string, 'twilio_inbound', { CallSid: params.twilioCallSid }, 'twilio');
   }

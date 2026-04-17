@@ -5,8 +5,11 @@ import Database from 'better-sqlite3';
 import { allocateEstimateNumber } from '@/lib/estimates/number';
 
 vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const p = require('node:path');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const f = require('node:fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const o = require('node:os');
   const dbPath = p.join(o.tmpdir(), `plumber-est-vitest-${process.pid}.db`);
   try {

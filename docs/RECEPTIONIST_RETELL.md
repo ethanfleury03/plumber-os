@@ -96,7 +96,7 @@ or
 ## Local testing
 
 1. Run `npm run dev`.
-2. Expose with **ngrok** (or similar): `ngrok http 3000`.
+2. Expose with **ngrok** (or similar): `ngrok http 3003`.
 3. Set `APP_BASE_URL` to the HTTPS ngrok URL.
 4. For first tests you may set `RECEPTIONIST_DEV_BYPASS_TWILIO_SIGNATURE=true` (dev only).
 

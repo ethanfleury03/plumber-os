@@ -12,6 +12,13 @@ function tableColumns(db: Database.Database, table: string): Set<string> {
  */
 export function applyPaymentsMigrations(db: Database.Database) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS invoice_number_sequences (
+      company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      year INTEGER NOT NULL,
+      last_seq INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (company_id, year)
+    );
+
     CREATE TABLE IF NOT EXISTS company_payment_settings (
       company_id TEXT PRIMARY KEY NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
       online_payments_enabled INTEGER NOT NULL DEFAULT 0,
@@ -113,5 +120,66 @@ export function applyPaymentsMigrations(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items(invoice_id);
+  `);
+
+  // Stripe Connect: companies.stripe_account_id + connect status + onboarding completion.
+  const companies = tableColumns(db, 'companies');
+  if (!companies.has('stripe_account_id')) {
+    db.exec(`ALTER TABLE companies ADD COLUMN stripe_account_id TEXT`);
+  }
+  if (!companies.has('stripe_connect_status')) {
+    db.exec(`ALTER TABLE companies ADD COLUMN stripe_connect_status TEXT DEFAULT 'pending'`);
+  }
+  if (!companies.has('stripe_onboarding_completed_at')) {
+    db.exec(`ALTER TABLE companies ADD COLUMN stripe_onboarding_completed_at TEXT`);
+  }
+  if (!companies.has('twilio_phone_number')) {
+    db.exec(`ALTER TABLE companies ADD COLUMN twilio_phone_number TEXT`);
+  }
+
+  // Refund + application-fee tracking on payments.
+  const payments = tableColumns(db, 'payments');
+  if (!payments.has('stripe_account_id')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN stripe_account_id TEXT`);
+  }
+  if (!payments.has('refunded_amount_cents')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN refunded_amount_cents INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!payments.has('application_fee_cents')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN application_fee_cents INTEGER`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS disputes (
+      id TEXT PRIMARY KEY NOT NULL,
+      company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      payment_id TEXT REFERENCES payments(id) ON DELETE SET NULL,
+      stripe_dispute_id TEXT NOT NULL UNIQUE,
+      stripe_charge_id TEXT,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'usd',
+      reason TEXT,
+      status TEXT NOT NULL,
+      evidence_due_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_disputes_company_id ON disputes(company_id);
+
+    CREATE TABLE IF NOT EXISTS webhook_failures (
+      id TEXT PRIMARY KEY NOT NULL,
+      company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      event_id TEXT,
+      event_type TEXT,
+      payload_json TEXT NOT NULL,
+      error_message TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 1,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_webhook_failures_provider_event ON webhook_failures(provider, event_type);
+    CREATE INDEX IF NOT EXISTS idx_webhook_failures_unresolved ON webhook_failures(resolved_at);
   `);
 }

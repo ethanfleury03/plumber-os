@@ -14,7 +14,7 @@ End-to-end proof of concept: mock/simulated calls, SQLite persistence, CRM integ
    Alternatively, hit `GET /api/setup` once (same effect; idempotent schema + seed exec).
 
 3. Start the app: `npm run dev`
-4. Open [http://localhost:3000/receptionist](http://localhost:3000/receptionist).
+4. Open [http://localhost:3003/receptionist](http://localhost:3003/receptionist).
 
 No Twilio or AI keys are required for mock mode.
 
@@ -31,7 +31,7 @@ No Twilio or AI keys are required for mock mode.
 5. Use **End & save now** to fast-forward any remaining lines and finalize immediately.
 6. Open a row in **Recent calls** for actions: create lead, book callback, book estimate visit, mark emergency/spam, reprocess.
 
-**Settings**: [http://localhost:3000/receptionist/settings](http://localhost:3000/receptionist/settings) — company name, greeting, disclosure/recording toggles, JSON fields for hours/keywords/actions, provider type (`mock` / `retell` / `twilio` / `custom`), Retell agent id.
+**Settings**: [http://localhost:3003/receptionist/settings](http://localhost:3003/receptionist/settings) — company name, greeting, disclosure/recording toggles, JSON fields for hours/keywords/actions, provider type (`mock` / `retell` / `twilio` / `custom`), Retell agent id.
 
 ## Where data lives
 

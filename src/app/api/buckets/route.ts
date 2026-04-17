@@ -1,16 +1,21 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { requirePortalUser } from '@/lib/auth/tenant';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
 
-// GET - Fetch buckets
 export async function GET() {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
-    const query = sql`
-      SELECT * FROM buckets ORDER BY position ASC
+    const buckets = await sql`
+      SELECT * FROM buckets
+      WHERE company_id = ${portal.companyId} OR company_id IS NULL
+      ORDER BY position ASC
     `;
-    const buckets = await query;
     return NextResponse.json({ buckets });
   } catch (error: unknown) {
     console.error('Error fetching buckets:', error);
@@ -18,18 +23,24 @@ export async function GET() {
   }
 }
 
-// POST - Create bucket
 export async function POST(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
-  
+
   try {
-    // Get max position
-    const maxPos = await sql`SELECT COALESCE(MAX(position), 0) as max FROM buckets`;
+    const maxPos = await sql`
+      SELECT COALESCE(MAX(position), 0) as max
+      FROM buckets WHERE company_id = ${portal.companyId}
+    `;
     const newPosition = Number(maxPos[0]?.max ?? 0) + 1;
 
     const result = await sql`
-      INSERT INTO buckets (title, color, position)
-      VALUES (${body.title}, ${body.color || '#6b7280'}, ${newPosition})
+      INSERT INTO buckets (company_id, title, color, position)
+      VALUES (${portal.companyId}, ${body.title}, ${body.color || '#6b7280'}, ${newPosition})
       RETURNING *
     `;
 
@@ -40,8 +51,12 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT - Update bucket
 export async function PUT(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -55,8 +70,8 @@ export async function PUT(request: Request) {
       SET title = COALESCE(${updates.title ?? null}, title),
           color = COALESCE(${updates.color ?? null}, color),
           position = COALESCE(${updates.position ?? null}, position),
-          updated_at = NOW()
-      WHERE id = ${id}
+          updated_at = datetime('now')
+      WHERE id = ${id} AND company_id = ${portal.companyId}
       RETURNING *
     `;
 
@@ -67,8 +82,12 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE - Delete bucket
 export async function DELETE(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -77,7 +96,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await sql`DELETE FROM buckets WHERE id = ${id}`;
+    await sql`DELETE FROM buckets WHERE id = ${id} AND company_id = ${portal.companyId}`;
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     console.error('Error deleting bucket:', error);

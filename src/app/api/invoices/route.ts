@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { sql } from '@/lib/db';
+import { getDb, sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import {
   deleteInvoiceLineItems,
@@ -7,6 +7,8 @@ import {
   insertInvoiceLineItems,
   listLineItemsForInvoiceIds,
 } from '@/lib/invoices/invoice-line-items';
+import { requirePortalUser } from '@/lib/auth/tenant';
+import { allocateInvoiceNumber } from '@/lib/invoices/number';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
@@ -39,14 +41,42 @@ function mapInvoiceRow(row: Record<string, unknown>) {
   return { ...inv, customers };
 }
 
-async function getNextInvoiceNumber() {
-  const rows = await sql`SELECT COUNT(*) as total FROM invoices`;
-  const total = Number(rows[0]?.total || 0);
-  const next = total + 1;
-  return `INV-${String(next).padStart(4, '0')}`;
+async function loadJobForCompany(companyId: string, jobId: string) {
+  const rows = await sql`
+    SELECT id, company_id, customer_id, type, description, estimated_price, final_price
+    FROM jobs
+    WHERE id = ${jobId} AND company_id = ${companyId}
+    LIMIT 1
+  `;
+  return rows[0] as Record<string, unknown> | undefined;
+}
+
+async function loadLeadForCompany(companyId: string, leadId: string) {
+  const rows = await sql`
+    SELECT id, company_id, customer_id, issue, description
+    FROM leads
+    WHERE id = ${leadId} AND company_id = ${companyId}
+    LIMIT 1
+  `;
+  return rows[0] as Record<string, unknown> | undefined;
+}
+
+async function customerExistsInCompany(companyId: string, customerId: string) {
+  const rows = await sql`
+    SELECT 1
+    FROM customers
+    WHERE id = ${customerId} AND company_id = ${companyId}
+    LIMIT 1
+  `;
+  return rows.length > 0;
 }
 
 export async function GET(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
   const customer_id = searchParams.get('customer_id');
@@ -55,7 +85,11 @@ export async function GET(request: Request) {
   const offset = (page - 1) * limit;
 
   try {
-    let countQuery = sql`SELECT COUNT(*) as total FROM invoices i WHERE 1=1`;
+    let countQuery = sql`
+      SELECT COUNT(*) as total
+      FROM invoices i
+      WHERE i.company_id = ${portal.companyId}
+    `;
     let dataQuery = sql`
       SELECT
         i.*,
@@ -64,7 +98,7 @@ export async function GET(request: Request) {
         c.phone AS cust_phone
       FROM invoices i
       LEFT JOIN customers c ON i.customer_id = c.id
-      WHERE 1=1
+      WHERE i.company_id = ${portal.companyId}
     `;
 
     if (status && status !== 'all') {
@@ -104,26 +138,26 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
 
   try {
-    let companyId = body.company_id || null;
     let customerId = body.customer_id || null;
     const jobId = body.job_id || null;
     let serviceType = body.service_type || null;
     let notes = body.notes || null;
     let amount = toMoney(body.amount);
+    const companyId = portal.companyId;
 
     if (jobId) {
-      const jobRows = await sql`
-        SELECT id, company_id, customer_id, type, description, estimated_price, final_price
-        FROM jobs WHERE id = ${jobId} LIMIT 1
-      `;
-      if (jobRows.length === 0) {
+      const job = await loadJobForCompany(companyId, String(jobId));
+      if (!job) {
         return NextResponse.json({ error: 'Job not found' }, { status: 400 });
       }
-      const job = jobRows[0];
-      companyId = companyId || (job.company_id as string);
       customerId = customerId || (job.customer_id as string | null);
       serviceType = serviceType || (job.type as string);
       notes = notes || (job.description as string | null) || null;
@@ -133,26 +167,17 @@ export async function POST(request: Request) {
     }
 
     if (body.lead_id) {
-      const leadRows = await sql`
-        SELECT id, company_id, customer_id, issue, description
-        FROM leads WHERE id = ${body.lead_id} LIMIT 1
-      `;
-      if (leadRows.length === 0) {
+      const lead = await loadLeadForCompany(companyId, String(body.lead_id));
+      if (!lead) {
         return NextResponse.json({ error: 'Lead not found' }, { status: 400 });
       }
-      const lead = leadRows[0];
-      companyId = companyId || (lead.company_id as string);
       customerId = customerId || (lead.customer_id as string | null);
       serviceType = serviceType || (lead.issue as string);
       notes = notes || (lead.description as string | null) || null;
     }
 
-    if (!companyId) {
-      const companies = await sql`SELECT id FROM companies ORDER BY created_at ASC LIMIT 1`;
-      if (companies.length === 0) {
-        return NextResponse.json({ error: 'No company found' }, { status: 400 });
-      }
-      companyId = companies[0].id as string;
+    if (customerId && !(await customerExistsInCompany(companyId, String(customerId)))) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 400 });
     }
 
     type LineIn = {
@@ -198,7 +223,7 @@ export async function POST(request: Request) {
     let amountCents: number;
     let taxCents: number;
     let totalCents: number;
-    let normalizedLines: Array<{
+    const normalizedLines: Array<{
       name: string;
       description: string | null;
       quantity: number;
@@ -253,7 +278,7 @@ export async function POST(request: Request) {
     const dueDate = body.due_date || null;
     const paidDate = body.status === 'paid' ? body.paid_date || todayIsoDate() : null;
 
-    const invoiceNumber = await getNextInvoiceNumber();
+    const invoiceNumber = allocateInvoiceNumber(getDb(), companyId);
 
     const inserted = await sql`
       INSERT INTO invoices (
@@ -297,7 +322,7 @@ export async function POST(request: Request) {
         c.phone AS cust_phone
       FROM invoices i
       LEFT JOIN customers c ON i.customer_id = c.id
-      WHERE i.id = ${invoiceId}
+      WHERE i.id = ${invoiceId} AND i.company_id = ${companyId}
       LIMIT 1
     `;
 
@@ -358,6 +383,11 @@ function normalizeInvoiceLineItems(rawLines: LineInBody[]) {
 }
 
 export async function PUT(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { id, line_items: lineItemsInput, ...updates } = body;
 
@@ -366,7 +396,12 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const existing = await sql`SELECT * FROM invoices WHERE id = ${id} LIMIT 1`;
+    const existing = await sql`
+      SELECT *
+      FROM invoices
+      WHERE id = ${id} AND company_id = ${portal.companyId}
+      LIMIT 1
+    `;
     if (existing.length === 0) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
@@ -390,6 +425,20 @@ export async function PUT(request: Request) {
         { error: 'Cannot change invoice amounts while a payment session is pending. Wait for payment or cancel in Stripe.' },
         { status: 409 },
       );
+    }
+
+    const nextCustomerId = updates.customer_id ?? cur.customer_id;
+    if (nextCustomerId != null && !(await customerExistsInCompany(portal.companyId, String(nextCustomerId)))) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 400 });
+    }
+
+    let nextJobId = updates.job_id ?? cur.job_id;
+    if (nextJobId != null) {
+      const job = await loadJobForCompany(portal.companyId, String(nextJobId));
+      if (!job) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 400 });
+      }
+      nextJobId = String(job.id);
     }
 
     let normalizedFromLines: ReturnType<typeof normalizeInvoiceLineItems>['normalizedLines'] | null =
@@ -444,9 +493,9 @@ export async function PUT(request: Request) {
 
     await sql`
       UPDATE invoices SET
-        company_id = ${updates.company_id ?? cur.company_id},
-        customer_id = ${updates.customer_id ?? cur.customer_id},
-        job_id = ${updates.job_id ?? cur.job_id},
+        company_id = ${portal.companyId},
+        customer_id = ${nextCustomerId},
+        job_id = ${nextJobId},
         invoice_number = ${updates.invoice_number ?? cur.invoice_number},
         service_type = ${isLineItemsUpdate ? serviceTypeFromLines : (updates.service_type ?? cur.service_type)},
         status = ${updates.status ?? cur.status},
@@ -461,7 +510,7 @@ export async function PUT(request: Request) {
         paid_date = ${paidDate},
         notes = ${updates.notes ?? cur.notes},
         updated_at = datetime('now')
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${portal.companyId}
     `;
 
     if (isLineItemsUpdate && normalizedFromLines && normalizedFromLines.length > 0) {
@@ -477,7 +526,7 @@ export async function PUT(request: Request) {
         c.phone AS cust_phone
       FROM invoices i
       LEFT JOIN customers c ON i.customer_id = c.id
-      WHERE i.id = ${id}
+      WHERE i.id = ${id} AND i.company_id = ${portal.companyId}
       LIMIT 1
     `;
 
@@ -490,6 +539,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -498,7 +552,17 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await sql`DELETE FROM invoices WHERE id = ${id}`;
+    const existing = await sql`
+      SELECT id
+      FROM invoices
+      WHERE id = ${id} AND company_id = ${portal.companyId}
+      LIMIT 1
+    `;
+    if (!existing.length) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    await sql`DELETE FROM invoices WHERE id = ${id} AND company_id = ${portal.companyId}`;
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

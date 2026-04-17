@@ -51,5 +51,10 @@ export function applyAuthMigrations(db: Database.Database) {
   if (t.has('portal_users')) {
     const c = cols(db, 'portal_users');
     if (!c.has('is_active')) db.exec(`ALTER TABLE portal_users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`);
+    if (!c.has('clerk_user_id')) db.exec(`ALTER TABLE portal_users ADD COLUMN clerk_user_id TEXT`);
+    // clerk_user_id unique only when set
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_portal_users_clerk_user_id ON portal_users(clerk_user_id) WHERE clerk_user_id IS NOT NULL`,
+    );
   }
 }
