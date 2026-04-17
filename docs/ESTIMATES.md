@@ -1,56 +1,45 @@
-# Estimates / quotes
+# Estimates / Quotes module
 
-PlumberOS **Estimates** let you build line-item quotes, share a secure customer link, collect approval or rejection, and convert an approved estimate into a **job** (with `jobs.source_estimate_id` set).
+## What it does
 
-## Internal UI
+Office staff and technicians can build line-item estimates, preview a customer-facing page, send or share a secure link, track status (draft through converted), and turn an approved estimate into a job. Activity and delivery rows record the timeline.
 
-- **Sidebar → Estimates** — list, search, status filters, dashboard stats.
-- **New estimate** — `/estimates/new` (optional query params: `lead_id`, `customer_id`, `job_id`, `receptionist_call_id`). Use the **CRM customer** search to attach a customer from `/api/customers` to the quote before creating.
-- **Editor** — `/estimates/[id]`: attach or change the CRM customer (snapshots refresh from the customer record), full line-item **edit** (pencil) / delete / add, totals, send/copy link, **Archive**, activity, deliveries, convert to job.
-- **Settings** — `/estimates/settings`: display name, numbering prefix, tax/expiration defaults, terms/footer, customer approval options.
+## Creating and editing
 
-## Customer (public) page
+1. Open **Estimates** in the sidebar (or use **New estimate** from a lead or receptionist call where linked).
+2. **Service catalog** lives under CRM: **CRM → Service catalog** (`/crm/service-catalog`) for full CRUD on reusable services (name, description, default price).
+3. On **New estimate** (`/estimates/new`), add lines with a **catalog dropdown** (fills name/price), editable **qty**, **unit price**, **description**, and optional **estimate-level discount**; a **live preview** shows totals. **Create & edit** sends `initial_line_items` (and `discount_amount_cents` when set).
+4. Create from blank or with query params: `lead_id`, `customer_id`, `job_id`, `receptionist_call_id` on `/estimates/new`.
+5. On the estimate editor, **Quick add from catalog** pulls live rows from **CRM → Service catalog** (same CRUD as `/crm/service-catalog`). Hardcoded presets were removed.
+6. Add line items manually or via quick add (optional **option_group** on the line-items API for good/better/best). Totals are recalculated on the server.
 
-- URL: `/estimate/[token]` where `token` is the estimate’s `customer_public_token` (opaque hex).
-- Draft estimates are **not** visible on the public page until sent (status moves to `sent` via **Send** or **Copy link**).
-- **Print / Save PDF**: use the browser print dialog on the public page (print hides action buttons).
+### Services catalog (API)
 
-## APIs
+- `GET/POST /api/estimates/catalog-services` — list / create company-scoped services (`estimate_catalog_services`).
+- `PATCH/DELETE /api/estimates/catalog-services/[id]` — update or remove a service.
+- `POST /api/estimates` accepts optional `catalog_service_ids: string[]` (UUIDs, in order) to seed line items from the catalog, or **`initial_line_items`** (full line payloads; used by the new-estimate UI and overrides `catalog_service_ids` when present).
 
-- Internal: `/api/estimates`, `/api/estimates/[id]`, line items, send, duplicate, manual approve/reject, convert-to-job, activity, stats, settings.
-- Public: `GET /api/public/estimates/[token]`, `POST .../approve`, `POST .../reject`, `POST .../viewed`.
+## Sending (email, SMS, auto)
 
-## Delivery / email
+- **Resend:** set `RESEND_API_KEY` and `ESTIMATE_FROM_EMAIL` so **Send / log delivery** can send real email when channel is email or **auto** and a recipient email exists.
+- **Twilio SMS:** set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` (or `TWILIO_FROM_NUMBER`) for SMS channel or **auto** when only a phone is available.
+- **Legacy:** `ESTIMATE_DELIVERY_PROVIDER` — `mock` (default), `console`, or stub behavior via `src/lib/estimates/delivery.ts`.
+- **Public link base:** `APP_BASE_URL` or `NEXT_PUBLIC_APP_BASE_URL` (fallback `http://localhost:3003`) for links in copy/email/SMS bodies.
+- **PDF:** staff can use **Download PDF** on the estimate detail page (`GET /api/estimates/[id]/pdf`).
+- **Public rate limits:** optional `PUBLIC_ESTIMATE_RATE_LIMIT_MAX` and `PUBLIC_ESTIMATE_RATE_LIMIT_WINDOW_SEC` (see `src/lib/public-rate-limit.ts`).
 
-- **`ESTIMATE_DELIVERY_PROVIDER`**: `mock` (default, records delivery + link), `console` (logs), `email_stub` (records intent; no SMTP wired yet).
-- **Send** creates an `estimate_delivery` row and sets status to `sent`. Resends log `resent` in activity.
-- **Copy link** uses `manual_copy_link` delivery type and copies the public URL.
+## Customer approval
 
-## Public base URL for links in emails/logs
+Customers open `/estimate/[token]` (unguessable token). First meaningful view can move status toward **viewed**. Approve/reject POST handlers validate the token. Internal notes are never shown on the public page.
 
-Set one of:
+## Converting to a job
 
-- `NEXT_PUBLIC_APP_BASE_URL` (e.g. `https://app.yourcompany.com`)
-- `APP_BASE_URL`
-
-Fallback in code: `http://localhost:3001` (dev server port for this repo).
+Only **approved** estimates convert once; **converted_to_job_id** and `jobs.source_estimate_id` link the records. Duplicate an estimate to revise after approval.
 
 ## Estimate numbers
 
-- Stored in `estimate_settings`: `estimate_prefix` + `next_sequence`.
-- Format: `{prefix}-{year}-{seq}` (e.g. `EST-2026-1000`), allocated in a SQLite transaction so sequence increments are safe for a single-writer app server.
-
-## Schema
-
-- Tables: `estimate_settings`, `estimates`, `estimate_line_items`, `estimate_activity`, `estimate_delivery`.
-- `jobs.source_estimate_id` links a job back to the estimate that created it.
-- Fresh installs: see `data/schema.sqlite.sql`. Existing DBs: migrations in `src/lib/estimates/sqlite-migrate.ts` (applied from `getDb()`).
+Per company and calendar year, sequence rows in **estimate_number_sequences** allocate the next id inside a transaction. Display format is `{prefix}-{year}-{seq}` (prefix from **estimate_settings**).
 
 ## Tests
 
-- `src/lib/estimates/totals.test.ts` — money math.
-- `src/lib/estimates/estimates.integration.test.ts` — SQLite flows (isolated temp DB via `SQLITE_PATH`).
-
-## SQLite `uuid()` helper
-
-The app registers `uuid()` on the SQLite connection (`src/lib/db.ts`) for `DEFAULT (uuid())` columns. If you open the DB outside the app, defaults that call `uuid()` will not work unless you register the same function.
+See `src/lib/estimates/estimates.test.ts` for totals, transitions, public flows, send mock, duplicate, and convert guards.

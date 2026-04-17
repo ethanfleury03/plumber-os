@@ -1,25 +1,27 @@
-import { addLineItem } from '@/lib/estimates/service';
-import { lineItemBodySchema } from '@/lib/estimates/validation';
 import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
+import { lineItemBodySchema } from '@/lib/estimates/validation';
+import { addEstimateLineItem } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function POST(request: Request, ctx: Ctx) {
   try {
-    const json = await request.json();
-    const body = lineItemBodySchema.parse(json);
-    const lineItem = await addLineItem(id, body);
-    return NextResponse.json({ lineItem });
-  } catch (error: unknown) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: 'Validation failed', issues: error.flatten() }, { status: 400 });
-    }
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id } = await ctx.params;
+    const body = lineItemBodySchema.parse(await request.json());
+    const line = await addEstimateLineItem(id, {
+      category: body.category ?? null,
+      name: body.name,
+      description: body.description ?? null,
+      quantity: body.quantity,
+      unit: body.unit,
+      unit_price_cents: body.unit_price_cents,
+      is_optional: body.is_optional,
+      is_taxable: body.is_taxable,
+      option_group: body.option_group ?? null,
+      sort_order: body.sort_order,
+    });
+    return NextResponse.json({ lineItem: line });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }

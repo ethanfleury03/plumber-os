@@ -1,38 +1,39 @@
-import { deleteLineItem, updateLineItem } from '@/lib/estimates/service';
-import { patchLineItemBodySchema } from '@/lib/estimates/validation';
 import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
+import { z } from 'zod';
+import { deleteEstimateLineItem, updateEstimateLineItem } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+const patchSchema = z.object({
+  category: z.string().nullable().optional(),
+  name: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  quantity: z.number().positive().optional(),
+  unit: z.string().optional(),
+  unit_price_cents: z.number().int().min(0).optional(),
+  is_optional: z.boolean().optional(),
+  is_taxable: z.boolean().optional(),
+  option_group: z.string().nullable().optional(),
+  sort_order: z.number().int().optional(),
+});
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string; lineItemId: string }> },
-) {
-  const { id, lineItemId } = await params;
+type Ctx = { params: Promise<{ id: string; lineItemId: string }> };
+
+export async function PATCH(request: Request, ctx: Ctx) {
   try {
-    const json = await request.json();
-    const body = patchLineItemBodySchema.parse(json);
-    await updateLineItem(id, lineItemId, body);
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: 'Validation failed', issues: error.flatten() }, { status: 400 });
-    }
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id, lineItemId } = await ctx.params;
+    const body = patchSchema.parse(await request.json());
+    await updateEstimateLineItem(id, lineItemId, body);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string; lineItemId: string }> },
-) {
-  const { id, lineItemId } = await params;
+export async function DELETE(_request: Request, ctx: Ctx) {
   try {
-    await deleteLineItem(id, lineItemId);
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id, lineItemId } = await ctx.params;
+    await deleteEstimateLineItem(id, lineItemId);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }

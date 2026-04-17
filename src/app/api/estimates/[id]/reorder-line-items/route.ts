@@ -1,25 +1,18 @@
-import { reorderLineItems } from '@/lib/estimates/service';
-import { reorderLineItemsSchema } from '@/lib/estimates/validation';
 import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
+import { z } from 'zod';
+import { reorderEstimateLineItems } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+const bodySchema = z.object({ orderedIds: z.array(z.string().min(8)) });
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function POST(request: Request, ctx: Ctx) {
   try {
-    const json = await request.json();
-    const { ordered_ids } = reorderLineItemsSchema.parse(json);
-    await reorderLineItems(id, ordered_ids);
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: 'Validation failed', issues: error.flatten() }, { status: 400 });
-    }
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id } = await ctx.params;
+    const { orderedIds } = bodySchema.parse(await request.json());
+    await reorderEstimateLineItems(id, orderedIds);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }

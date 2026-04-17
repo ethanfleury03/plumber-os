@@ -1,14 +1,14 @@
-import { getEstimateDashboardStats } from '@/lib/estimates/service';
 import { NextResponse } from 'next/server';
+import { getDefaultCompanyId, getEstimateDashboardStats } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const stats = await getEstimateDashboardStats();
-    return NextResponse.json(stats);
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    const { searchParams } = new URL(request.url);
+    const companyId = (searchParams.get('company_id') || (await getDefaultCompanyId())) as string;
+    const stats = await getEstimateDashboardStats(companyId);
+    return NextResponse.json({ stats });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 });
   }
 }

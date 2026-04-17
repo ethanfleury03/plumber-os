@@ -1,18 +1,14 @@
-import { getActivity } from '@/lib/estimates/service';
 import { NextResponse } from 'next/server';
+import { getEstimateActivity } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function GET(_request: Request, ctx: Ctx) {
   try {
-    const activity = await getActivity(id);
+    const { id } = await ctx.params;
+    const activity = await getEstimateActivity(id);
     return NextResponse.json({ activity });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 });
   }
 }

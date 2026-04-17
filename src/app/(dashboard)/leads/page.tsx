@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Calendar, X } from 'lucide-react';
 import { getStatusStyle, leadStatusLabels, sourceLabels } from '@/lib/statusColors';
@@ -330,7 +331,11 @@ export default function LeadsPage() {
                     <tr key={lead.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{lead.customer_name || '-'}</p>
+                          <p className="font-medium text-gray-900">
+                            <Link href={`/leads/${lead.id}`} className="hover:text-blue-600 hover:underline">
+                              {lead.customer_name || 'View lead'}
+                            </Link>
+                          </p>
                           <p className="text-xs text-gray-500 capitalize">{lead.source}</p>
                         </div>
                       </td>
@@ -365,6 +370,12 @@ export default function LeadsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
+                          <Link
+                            href={`/estimates/new?lead_id=${encodeURIComponent(lead.id)}`}
+                            className="text-xs font-medium text-teal-700 hover:underline px-2 py-1 rounded-lg hover:bg-teal-50"
+                          >
+                            Estimate
+                          </Link>
                           <button 
                             onClick={() => handleDelete(lead.id)}
                             className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500"

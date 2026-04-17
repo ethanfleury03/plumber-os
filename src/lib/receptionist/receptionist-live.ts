@@ -30,10 +30,67 @@ function devBypassTwilio() {
   return process.env.RECEPTIONIST_DEV_BYPASS_TWILIO_SIGNATURE === 'true';
 }
 
+function tunnelHostLooksHttps(host: string): boolean {
+  return /\.ngrok-free\.(app|dev)$|\.ngrok\.io$/i.test(host.trim());
+}
+
 /**
- * Twilio validates the exact public URL they posted to. Behind proxies or when `request.url`
- * is an internal host, set `TWILIO_WEBHOOK_PUBLIC_URL` (no trailing slash) to the stable
- * public origin + path prefix, e.g. `https://your-domain.com` so reconstructed URL matches Twilio.
+ * Path + query from the incoming request (stable regardless of public vs internal host).
+ */
+function requestPathAndSearch(requestUrl: string): { pathname: string; search: string } {
+  try {
+    const u = new URL(requestUrl);
+    return { pathname: u.pathname, search: u.search };
+  } catch {
+    return { pathname: '/', search: '' };
+  }
+}
+
+/**
+ * Full URL Twilio used when signing `X-Twilio-Signature`. Use this for `validateRequest`.
+ *
+ * Order: `TWILIO_WEBHOOK_PUBLIC_URL` + path → `x-forwarded-*` / `Forwarded` (ngrok, load balancers)
+ * → raw `request.url` (works only if the app sees the same host Twilio posted to).
+ */
+export function getTwilioWebhookUrlForSignature(request: Request): string {
+  const { pathname, search } = requestPathAndSearch(request.url);
+  const suffix = `${pathname}${search}`;
+
+  const envBase = process.env.TWILIO_WEBHOOK_PUBLIC_URL?.replace(/\/$/, '');
+  if (envBase) return `${envBase}${suffix}`;
+
+  const h = request.headers;
+  const xfHost = h.get('x-forwarded-host')?.split(',')[0]?.trim();
+  let xfProto = h.get('x-forwarded-proto')?.split(',')[0]?.trim();
+
+  if (xfHost) {
+    if (!xfProto && tunnelHostLooksHttps(xfHost)) xfProto = 'https';
+    if (xfProto) return `${xfProto}://${xfHost}${suffix}`;
+  }
+
+  const forwarded = h.get('forwarded');
+  if (forwarded) {
+    const hostMatch = /host=([^;,\s]+)/i.exec(forwarded);
+    const protoMatch = /proto=([^;,\s]+)/i.exec(forwarded);
+    const fh = hostMatch?.[1]?.replace(/^"|"$/g, '').trim();
+    let fp = protoMatch?.[1]?.replace(/^"|"$/g, '').trim();
+    if (fh) {
+      if (!fp && tunnelHostLooksHttps(fh)) fp = 'https';
+      if (fp) return `${fp}://${fh}${suffix}`;
+    }
+  }
+
+  // Some tunnels preserve the public hostname in `Host` (not always true for ngrok → localhost).
+  const hostHeader = h.get('host')?.split(',')[0]?.trim();
+  if (hostHeader && tunnelHostLooksHttps(hostHeader)) {
+    return `https://${hostHeader}${suffix}`;
+  }
+
+  return request.url;
+}
+
+/**
+ * @deprecated Prefer {@link getTwilioWebhookUrlForSignature} with the full `Request`.
  */
 export function resolveTwilioWebhookUrl(requestUrl: string): string {
   const base = process.env.TWILIO_WEBHOOK_PUBLIC_URL?.replace(/\/$/, '');
@@ -64,7 +121,7 @@ export function getAppBaseUrl() {
   return (
     process.env.APP_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    'http://localhost:3000'
+    'http://localhost:3003'
   ).replace(/\/$/, '');
 }
 
@@ -96,7 +153,7 @@ export function verifyTwilioVoiceRequest(
     console.warn('[receptionist-live] Twilio validateRequest returned false', {
       fullUrl,
       keys: Object.keys(params),
-      hint: 'If using ngrok, set TWILIO_WEBHOOK_PUBLIC_URL to the exact public URL Twilio posts to.',
+      hint: 'Behind ngrok: ensure TWILIO_AUTH_TOKEN matches this Twilio account; set TWILIO_WEBHOOK_PUBLIC_URL to your ngrok https origin if forwarded headers are missing.',
     });
   }
   return ok;
@@ -153,25 +210,33 @@ export async function handleTwilioInboundVoice(params: {
   from: string;
   to: string;
   signature: string | null;
-  requestUrl: string;
+  /** Full URL Twilio signed (see {@link getTwilioWebhookUrlForSignature}). */
+  webhookUrlForSignature: string;
+  /** Full Twilio POST fields (required for signature validation). */
+  formParams: Record<string, string>;
 }): Promise<{ twiml: string; status: number; error?: string }> {
-  const formParams: Record<string, string> = {
-    CallSid: params.twilioCallSid,
-    From: params.from,
-    To: params.to,
-  };
-  const urlForSignature = resolveTwilioWebhookUrl(params.requestUrl);
-  if (!verifyTwilioVoiceRequest(params.signature, urlForSignature, formParams)) {
-    return { twiml: twimlReject('Unauthorized'), status: 403 };
+  // Twilio treats non-2xx as webhook failure (11200) and will not run TwiML — callers only hear the generic
+  // "application error" prompt. Always return 200 when sending TwiML (including error <Say> flows).
+  if (!verifyTwilioVoiceRequest(params.signature, params.webhookUrlForSignature, params.formParams)) {
+    return {
+      twiml: twimlReject('Sorry, we could not connect this call. Please try again later.'),
+      status: 200,
+      error: 'twilio_signature_invalid',
+    };
   }
 
-  const settings = await ensureReceptionistSettings();
+  const companyIdForCall = await getCompanyIdForReceptionist(params.to);
+  const settings = await ensureReceptionistSettings(companyIdForCall);
   const agentId =
     (settings.retell_agent_id && settings.retell_agent_id.trim()) ||
     process.env.RETELL_AGENT_ID ||
     '';
   if (!agentId) {
-    return { twiml: twimlReject('Receptionist agent not configured'), status: 500 };
+    return {
+      twiml: twimlReject('Receptionist agent not configured. Please try again later.'),
+      status: 200,
+      error: 'retell_agent_missing',
+    };
   }
 
   let row = await findReceptionistCallByTwilioSid(params.twilioCallSid);
@@ -180,6 +245,7 @@ export async function handleTwilioInboundVoice(params: {
       twilioCallSid: params.twilioCallSid,
       fromPhone: params.from,
       toPhone: params.to,
+      companyId: companyIdForCall,
     });
     await logReceptionistEvent(row.id as string, 'twilio_inbound', { CallSid: params.twilioCallSid }, 'twilio');
   }
@@ -215,10 +281,8 @@ export async function handleTwilioInboundVoice(params: {
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Retell registration failed';
-      if (process.env.NODE_ENV === 'development') {
-        console.error('[receptionist-live] registerPhoneCall', e);
-      }
-      return { twiml: twimlReject('Unable to connect AI line'), status: 500, error: msg };
+      console.error('[receptionist-live] registerPhoneCall failed:', msg, e);
+      return { twiml: twimlReject('Unable to connect AI line. Please try again later.'), status: 200, error: msg };
     }
   }
 

@@ -1,58 +1,58 @@
+import { NextResponse } from 'next/server';
+import { patchEstimateBodySchema } from '@/lib/estimates/validation';
 import {
   archiveEstimate,
-  getEstimateAdminDetail,
-  patchEstimate,
+  buildEstimatePresentation,
+  getEstimateById,
+  updateEstimate,
 } from '@/lib/estimates/service';
-import { patchEstimateBodySchema } from '@/lib/estimates/validation';
-import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function GET(_request: Request, ctx: Ctx) {
   try {
-    const detail = await getEstimateAdminDetail(id);
-    if (!detail) {
-      return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });
-    }
-    return NextResponse.json(detail);
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    const { id } = await ctx.params;
+    const presentation = await buildEstimatePresentation(id, { internal: true });
+    if (!presentation) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json(presentation);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 });
   }
 }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function PATCH(request: Request, ctx: Ctx) {
   try {
-    const json = await request.json();
-    const body = patchEstimateBodySchema.parse(json);
-    const estimate = await patchEstimate(id, body);
-    return NextResponse.json({ estimate });
-  } catch (error: unknown) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: 'Validation failed', issues: error.flatten() }, { status: 400 });
-    }
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id } = await ctx.params;
+    const body = patchEstimateBodySchema.parse(await request.json());
+    const est = await getEstimateById(id);
+    if (!est) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const updated = await updateEstimate(id, {
+      title: body.title,
+      description: body.description,
+      status: body.status,
+      notes_internal: body.notes_internal,
+      notes_customer: body.notes_customer,
+      expiration_date: body.expiration_date,
+      discount_amount_cents: body.discount_amount_cents,
+      tax_rate_basis_points: body.tax_rate_basis_points,
+      deposit_amount_cents: body.deposit_amount_cents,
+      assigned_to_plumber_id: body.assigned_to_plumber_id,
+      selected_option_group: body.selected_option_group,
+    });
+    return NextResponse.json({ estimate: updated });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function DELETE(_request: Request, ctx: Ctx) {
   try {
+    const { id } = await ctx.params;
+    const est = await getEstimateById(id);
+    if (!est) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     await archiveEstimate(id);
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 });
   }
 }

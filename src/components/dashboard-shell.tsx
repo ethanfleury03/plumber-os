@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AppSidebar } from '@/components/app-sidebar';
+import { CommandPalette } from '@/components/command-palette';
 
 type SidebarSlotContextValue = {
   setSidebarAboveUserCard: (node: ReactNode | null) => void;
@@ -39,6 +40,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         <AppSidebar beforeUserCard={sidebarAboveUserCard} />
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">{children}</div>
       </div>
+      <CommandPalette />
     </SidebarSlotContext.Provider>
   );
 }

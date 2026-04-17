@@ -1,11 +1,16 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { requirePortalUser } from '@/lib/auth/tenant';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
 
-// GET - Fetch leads
 export async function GET(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
   const plumber_id = searchParams.get('plumber_id');
@@ -17,7 +22,6 @@ export async function GET(request: Request) {
   const offset = (page - 1) * limit;
 
   try {
-    // Build query
     let query = sql`
       SELECT 
         l.*,
@@ -29,12 +33,13 @@ export async function GET(request: Request) {
       FROM leads l
       LEFT JOIN customers c ON l.customer_id = c.id
       LEFT JOIN plumbers p ON l.plumber_id = p.id
-      WHERE 1=1
+      WHERE l.company_id = ${portal.companyId}
     `;
-    
-    let countQuery = sql`SELECT COUNT(*) as total FROM leads l WHERE 1=1`;
-    
-    // Add filters
+
+    let countQuery = sql`
+      SELECT COUNT(*) as total FROM leads l WHERE l.company_id = ${portal.companyId}
+    `;
+
     if (status && status !== 'all') {
       query = sql`${query} AND l.status = ${status}`;
       countQuery = sql`${countQuery} AND l.status = ${status}`;
@@ -48,15 +53,13 @@ export async function GET(request: Request) {
       countQuery = sql`${countQuery} AND l.source = ${source}`;
     }
     if (search) {
-      query = sql`${query} AND (c.name ILIKE ${'%' + search + '%'} OR c.phone ILIKE ${'%' + search + '%'} OR l.location ILIKE ${'%' + search + '%'} OR l.issue ILIKE ${'%' + search + '%'})`;
-      countQuery = sql`${countQuery} AND (c.name ILIKE ${'%' + search + '%'} OR c.phone ILIKE ${'%' + search + '%'} OR l.location ILIKE ${'%' + search + '%'} OR l.issue ILIKE ${'%' + search + '%'})`;
+      query = sql`${query} AND (c.name LIKE ${'%' + search + '%'} OR c.phone LIKE ${'%' + search + '%'} OR l.location LIKE ${'%' + search + '%'} OR l.issue LIKE ${'%' + search + '%'})`;
+      countQuery = sql`${countQuery} AND (c.name LIKE ${'%' + search + '%'} OR c.phone LIKE ${'%' + search + '%'} OR l.location LIKE ${'%' + search + '%'} OR l.issue LIKE ${'%' + search + '%'})`;
     }
 
-    // Get total count
     const countResult = await countQuery;
     const total = countResult[0]?.total || 0;
 
-    // Add ordering and pagination
     query = sql`
       ${query} 
       ORDER BY l.created_at DESC 
@@ -72,41 +75,39 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - Create lead
 export async function POST(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
-  
+
   try {
-    // Get or create default company
-    let companyId = body.company_id;
-    if (!companyId) {
-      const companies = await sql`SELECT id FROM companies LIMIT 1`;
-      if (companies.length > 0) {
-        companyId = companies[0].id;
-      } else {
-        const newCompany = await sql`
-          INSERT INTO companies (name, email)
-          VALUES ('Demo Company', 'demo@plumberos.com')
-          RETURNING id
-        `;
-        companyId = newCompany[0].id;
+    const companyId = portal.companyId;
+
+    let customerId = body.customer_id;
+    if (customerId) {
+      const exists = await sql`
+        SELECT 1 FROM customers WHERE id = ${customerId} AND company_id = ${companyId} LIMIT 1
+      `;
+      if (exists.length === 0) {
+        return NextResponse.json({ error: 'Customer not found' }, { status: 400 });
       }
     }
-    
-    // If customer_name or customer_phone provided, get or create customer
-    let customerId = body.customer_id;
+
     if (!customerId && (body.customer_name || body.customer_phone)) {
-      // Check if customer with same phone exists
       if (body.customer_phone) {
         const existingCustomer = await sql`
-          SELECT id FROM customers WHERE phone = ${body.customer_phone} LIMIT 1
+          SELECT id FROM customers
+          WHERE phone = ${body.customer_phone} AND company_id = ${companyId}
+          LIMIT 1
         `;
         if (existingCustomer.length > 0) {
           customerId = existingCustomer[0].id;
         }
       }
-      
-      // Create new customer if not found
+
       if (!customerId) {
         const newCustomer = await sql`
           INSERT INTO customers (company_id, name, phone, email, address)
@@ -122,7 +123,16 @@ export async function POST(request: Request) {
         customerId = newCustomer[0].id;
       }
     }
-    
+
+    if (body.plumber_id) {
+      const exists = await sql`
+        SELECT 1 FROM plumbers WHERE id = ${body.plumber_id} AND company_id = ${companyId} LIMIT 1
+      `;
+      if (exists.length === 0) {
+        return NextResponse.json({ error: 'Plumber not found' }, { status: 400 });
+      }
+    }
+
     const result = await sql`
       INSERT INTO leads (company_id, customer_id, plumber_id, source, status, priority, issue, description, location)
       VALUES (
@@ -146,8 +156,12 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT - Update lead
 export async function PUT(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -156,34 +170,37 @@ export async function PUT(request: Request) {
   }
 
   try {
-    // Handle status update (most common)
+    const existing = await sql`
+      SELECT company_id FROM leads WHERE id = ${id} LIMIT 1
+    `;
+    if (existing.length === 0 || String((existing[0] as Record<string, unknown>).company_id) !== portal.companyId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
     if (updates.status !== undefined) {
       const result = await sql`
-        UPDATE leads SET status = ${updates.status}, updated_at = NOW() 
-        WHERE id = ${id} RETURNING *
-      `;
-      return NextResponse.json({ lead: result[0] });
-    }
-    
-    // Handle location update
-    if (updates.location !== undefined) {
-      const result = await sql`
-        UPDATE leads SET location = ${updates.location}, updated_at = NOW() 
-        WHERE id = ${id} RETURNING *
-      `;
-      return NextResponse.json({ lead: result[0] });
-    }
-    
-    // Handle issue update
-    if (updates.issue !== undefined) {
-      const result = await sql`
-        UPDATE leads SET issue = ${updates.issue}, updated_at = NOW() 
-        WHERE id = ${id} RETURNING *
+        UPDATE leads SET status = ${updates.status}, updated_at = datetime('now') 
+        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
       `;
       return NextResponse.json({ lead: result[0] });
     }
 
-    // Default response if no recognized fields
+    if (updates.location !== undefined) {
+      const result = await sql`
+        UPDATE leads SET location = ${updates.location}, updated_at = datetime('now') 
+        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
+      `;
+      return NextResponse.json({ lead: result[0] });
+    }
+
+    if (updates.issue !== undefined) {
+      const result = await sql`
+        UPDATE leads SET issue = ${updates.issue}, updated_at = datetime('now') 
+        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
+      `;
+      return NextResponse.json({ lead: result[0] });
+    }
+
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
   } catch (error: unknown) {
     console.error('Error updating lead:', error);
@@ -191,8 +208,12 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE - Delete lead
 export async function DELETE(request: Request) {
+  const portal = await requirePortalUser().catch(() => null);
+  if (!portal) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -201,7 +222,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await sql`DELETE FROM leads WHERE id = ${id}`;
+    await sql`DELETE FROM leads WHERE id = ${id} AND company_id = ${portal.companyId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

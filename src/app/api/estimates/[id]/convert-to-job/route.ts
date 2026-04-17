@@ -1,18 +1,14 @@
-import { convertEstimateToJob } from '@/lib/estimates/service';
 import { NextResponse } from 'next/server';
+import { convertEstimateToJob } from '@/lib/estimates/service';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+export async function POST(_request: Request, ctx: Ctx) {
   try {
-    const { jobId } = await convertEstimateToJob(id);
-    return NextResponse.json({ jobId });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+    const { id } = await ctx.params;
+    const result = await convertEstimateToJob(id);
+    return NextResponse.json(result);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }

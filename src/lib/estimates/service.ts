@@ -1,858 +1,1046 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { sql } from '@/lib/db';
-import { allocateEstimateNumber } from '@/lib/estimates/numbering';
-import { runEstimateDelivery, type EstimateDeliveryPayload } from '@/lib/estimates/delivery';
-import { calculateEstimateTotals, computeLineTotalCents, type LineForTotals } from '@/lib/estimates/totals';
-import type { z } from 'zod';
-import type {
-  createEstimateBodySchema,
-  lineItemBodySchema,
-  patchEstimateBodySchema,
-  patchLineItemBodySchema,
-} from '@/lib/estimates/validation';
+import { getDb } from '@/lib/db';
+import { allocateEstimateNumber } from '@/lib/estimates/number';
+import {
+  buildEstimateEmailCopy,
+  pickEmailProvider,
+  TwilioSmsEstimateDeliveryProvider,
+  MockEstimateDeliveryProvider,
+  type DeliveryResult,
+  type DeliverySendInput,
+} from '@/lib/estimates/delivery';
+import { sendEstimateViaClerkMailbox } from '@/lib/estimates/clerk-mailbox';
+import { calculateEstimateTotals, lineExtendedCents, type LineInput } from '@/lib/estimates/totals';
+import type { ActivityEventType, EstimateStatus } from '@/lib/estimates/types';
+import { assertStatusTransition } from '@/lib/estimates/validation';
+import { getCatalogServicesByIds } from '@/lib/estimates/catalog-services';
+import { getCompanyPaymentSettings } from '@/lib/payments/company-settings';
+import { stripeConfigured, estimateDepositAmountCents, depositBlocksPublicApproval } from '@/lib/payments/policy';
 
-async function getDefaultCompanyId(): Promise<string> {
+async function sendEmailWithMailboxFirst(
+  clerkUserId: string | null | undefined,
+  input: DeliverySendInput,
+): Promise<DeliveryResult> {
+  if (clerkUserId) {
+    const mb = await sendEstimateViaClerkMailbox(clerkUserId, input);
+    if (mb.status === 'sent') return mb;
+  }
+  return pickEmailProvider().send(input);
+}
+
+function publicAppBaseUrl(): string {
+  return (
+    process.env.APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    'http://localhost:3003'
+  ).replace(/\/$/, '');
+}
+
+export async function getDefaultCompanyId(explicit?: string | null): Promise<string> {
+  if (explicit) return explicit;
   const rows = await sql`SELECT id FROM companies ORDER BY created_at ASC LIMIT 1`;
-  if (rows.length) return rows[0].id as string;
-  const ins = await sql`
-    INSERT INTO companies (name, email) VALUES ('Demo Company', 'demo@plumberos.com') RETURNING id
-  `;
-  return (ins[0] as { id: string }).id;
+  const id = rows[0]?.id as string | undefined;
+  if (!id) throw new Error('No company found. Run setup or create a company first.');
+  return id;
 }
 
-export async function logEstimateActivity(
-  estimateId: string,
-  eventType: string,
-  payload: unknown,
-  actorType = 'system',
-  actorId: string | null = null,
-) {
+export async function ensureEstimateSettings(companyId: string): Promise<Record<string, unknown>> {
+  const rows = await sql`SELECT * FROM estimate_settings WHERE company_id = ${companyId} LIMIT 1`;
+  if (rows.length) return rows[0] as Record<string, unknown>;
+  const comp = (await sql`SELECT name, email, phone, address FROM companies WHERE id = ${companyId} LIMIT 1`)[0] as
+    | Record<string, unknown>
+    | undefined;
+  const name = (comp?.name as string) || 'Company';
+  const sid = randomUUID();
   await sql`
-    INSERT INTO estimate_activity (estimate_id, event_type, payload_json, actor_type, actor_id)
-    VALUES (${estimateId}, ${eventType}, ${JSON.stringify(payload ?? {})}, ${actorType}, ${actorId})
+    INSERT INTO estimate_settings (
+      id, company_id, company_name, estimate_prefix, default_expiration_days,
+      default_terms_text, estimate_footer_text
+    ) VALUES (
+      ${sid},
+      ${companyId},
+      ${name},
+      'EST',
+      30,
+      ${'Payment due as agreed. Prices valid for the period shown on this estimate.'},
+      ${'Thank you for choosing us for your plumbing needs.'}
+    )
+  `;
+  const again = await sql`SELECT * FROM estimate_settings WHERE company_id = ${companyId} LIMIT 1`;
+  return again[0] as Record<string, unknown>;
+}
+
+async function logActivity(
+  estimateId: string,
+  eventType: ActivityEventType,
+  payload: Record<string, unknown> | null,
+  actorType: string,
+  actorId: string | null,
+) {
+  const aid = randomUUID();
+  await sql`
+    INSERT INTO estimate_activity (id, estimate_id, event_type, payload_json, actor_type, actor_id)
+    VALUES (
+      ${aid},
+      ${estimateId},
+      ${eventType},
+      ${payload ? JSON.stringify(payload) : null},
+      ${actorType},
+      ${actorId}
+    )
   `;
 }
 
-async function fetchLineRows(estimateId: string): Promise<Record<string, unknown>[]> {
-  return sql`
-    SELECT * FROM estimate_line_items WHERE estimate_id = ${estimateId} ORDER BY sort_order ASC, created_at ASC
+export async function loadLineInputs(estimateId: string): Promise<LineInput[]> {
+  const lines = await sql`
+    SELECT quantity, unit_price_cents, is_taxable FROM estimate_line_items
+    WHERE estimate_id = ${estimateId}
+    ORDER BY sort_order ASC, created_at ASC
   `;
-}
-
-function rowsToLineForTotals(rows: Record<string, unknown>[]): LineForTotals[] {
-  return rows.map((r) => ({
+  return lines.map((r) => ({
     quantity: Number(r.quantity) || 0,
     unit_price_cents: Number(r.unit_price_cents) || 0,
-    is_optional: Boolean(r.is_optional),
     is_taxable: Boolean(r.is_taxable),
-    included_in_package: Boolean(r.included_in_package ?? 1),
-    option_group: (r.option_group as string) || null,
   }));
 }
 
-export async function recalculateEstimateTotals(estimateId: string) {
-  const est = (
-    await sql`SELECT discount_amount_cents, tax_rate_basis_points FROM estimates WHERE id = ${estimateId} LIMIT 1`
-  )[0] as Record<string, unknown> | undefined;
+export async function recalculateAndPersistEstimate(estimateId: string): Promise<void> {
+  const est = (await sql`SELECT discount_amount_cents, tax_rate_basis_points FROM estimates WHERE id = ${estimateId} LIMIT 1`)[0] as
+    | { discount_amount_cents: number; tax_rate_basis_points: number | null }
+    | undefined;
   if (!est) return;
-  const lines = await fetchLineRows(estimateId);
-  const lt = rowsToLineForTotals(lines);
-  const settings = (
-    await sql`SELECT default_tax_rate_basis_points FROM estimate_settings WHERE id = 'default' LIMIT 1`
-  )[0] as Record<string, unknown> | undefined;
-  const taxBps =
-    est.tax_rate_basis_points != null && est.tax_rate_basis_points !== ''
-      ? Number(est.tax_rate_basis_points)
-      : Number(settings?.default_tax_rate_basis_points ?? 0);
-  const discount = Number(est.discount_amount_cents ?? 0);
-  const t = calculateEstimateTotals(lt, discount, taxBps);
-
-  for (const row of lines) {
-    const q = Number(row.quantity) || 0;
-    const up = Number(row.unit_price_cents) || 0;
-    const calc = computeLineTotalCents(q, up);
-    if (calc !== Number(row.total_price_cents)) {
-      await sql`
-        UPDATE estimate_line_items SET total_price_cents = ${calc}, updated_at = datetime('now') WHERE id = ${row.id as string}
-      `;
-    }
-  }
+  const lines = await loadLineInputs(estimateId);
+  const totals = calculateEstimateTotals({
+    lines,
+    discount_amount_cents: Number(est.discount_amount_cents) || 0,
+    tax_rate_basis_points: est.tax_rate_basis_points,
+  });
 
   await sql`
     UPDATE estimates SET
-      subtotal_amount_cents = ${t.subtotal_amount_cents},
-      tax_amount_cents = ${t.tax_amount_cents},
-      total_amount_cents = ${t.total_amount_cents},
+      subtotal_amount_cents = ${totals.subtotal_amount_cents},
+      discount_amount_cents = ${totals.discount_amount_cents},
+      tax_amount_cents = ${totals.tax_amount_cents},
+      total_amount_cents = ${totals.total_amount_cents},
       updated_at = datetime('now')
     WHERE id = ${estimateId}
   `;
+
+  for (const row of await sql`SELECT id, quantity, unit_price_cents FROM estimate_line_items WHERE estimate_id = ${estimateId}`) {
+    const ext = lineExtendedCents(Number(row.quantity), Number(row.unit_price_cents));
+    await sql`UPDATE estimate_line_items SET total_price_cents = ${ext}, updated_at = datetime('now') WHERE id = ${row.id as string}`;
+  }
 }
 
-function newPublicToken(): string {
-  return randomBytes(32).toString('hex');
+export async function getEstimateDashboardStats(companyId: string) {
+  const rows = await sql`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS draft,
+      SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+      SUM(CASE WHEN status = 'viewed' THEN 1 ELSE 0 END) AS viewed,
+      SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+      SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) AS expired,
+      SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) AS converted,
+      SUM(COALESCE(total_amount_cents, 0)) AS value_cents
+    FROM estimates
+    WHERE company_id = ${companyId}
+  `;
+  const r = rows[0] as Record<string, unknown>;
+  const sentPlus = Number(r.sent || 0) + Number(r.viewed || 0) + Number(r.approved || 0) + Number(r.rejected || 0);
+  const approved = Number(r.approved || 0);
+  const rejected = Number(r.rejected || 0);
+  const denom = approved + rejected;
+  const approval_rate = denom > 0 ? approved / denom : null;
+  return {
+    total: Number(r.total || 0),
+    draft: Number(r.draft || 0),
+    sent: Number(r.sent || 0),
+    viewed: Number(r.viewed || 0),
+    approved,
+    rejected,
+    expired: Number(r.expired || 0),
+    converted: Number(r.converted || 0),
+    total_value_cents: Number(r.value_cents || 0),
+    approval_rate,
+    sent_funnel: sentPlus,
+  };
 }
 
-export async function createEstimate(body: z.infer<typeof createEstimateBodySchema>) {
-  const companyId = await getDefaultCompanyId();
-  const settings = (
-    await sql`SELECT * FROM estimate_settings WHERE id = 'default' LIMIT 1`
-  )[0] as Record<string, unknown>;
-  const company = (await sql`SELECT * FROM companies WHERE id = ${companyId} LIMIT 1`)[0] as Record<
+export async function listEstimates(params: {
+  companyId: string;
+  status?: string | null;
+  search?: string | null;
+  page?: number;
+  limit?: number;
+  customer_id?: string | null;
+  lead_id?: string | null;
+}) {
+  const page = Math.max(1, params.page || 1);
+  const limit = Math.min(100, Math.max(1, params.limit || 20));
+  const offset = (page - 1) * limit;
+
+  let listQuery = sql`
+    SELECT e.*, c.name AS customer_join_name
+    FROM estimates e
+    LEFT JOIN customers c ON e.customer_id = c.id
+    WHERE e.company_id = ${params.companyId}
+  `;
+  let countQuery = sql`
+    SELECT COUNT(*) AS n
+    FROM estimates e
+    LEFT JOIN customers c ON e.customer_id = c.id
+    WHERE e.company_id = ${params.companyId}
+  `;
+  if (params.customer_id) {
+    listQuery = sql`${listQuery} AND e.customer_id = ${params.customer_id}`;
+    countQuery = sql`${countQuery} AND e.customer_id = ${params.customer_id}`;
+  }
+  if (params.lead_id) {
+    listQuery = sql`${listQuery} AND e.lead_id = ${params.lead_id}`;
+    countQuery = sql`${countQuery} AND e.lead_id = ${params.lead_id}`;
+  }
+  if (params.status && params.status !== 'all') {
+    listQuery = sql`${listQuery} AND e.status = ${params.status}`;
+    countQuery = sql`${countQuery} AND e.status = ${params.status}`;
+  }
+  if (params.search?.trim()) {
+    const q = `%${params.search.trim()}%`;
+    const searchFrag = sql` AND (
+      e.estimate_number LIKE ${q} OR e.title LIKE ${q} OR e.customer_name_snapshot LIKE ${q}
+      OR c.name LIKE ${q}
+    )`;
+    listQuery = sql`${listQuery}${searchFrag}`;
+    countQuery = sql`${countQuery}${searchFrag}`;
+  }
+
+  const countRow = await countQuery;
+  const total = Number((countRow[0] as { n: number }).n || 0);
+
+  const rows = await sql`
+    ${listQuery}
+    ORDER BY e.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  return { estimates: rows, total, page, limit };
+}
+
+export async function getEstimateById(id: string): Promise<Record<string, unknown> | null> {
+  const rows = await sql`SELECT * FROM estimates WHERE id = ${id} LIMIT 1`;
+  return rows[0] ? (rows[0] as Record<string, unknown>) : null;
+}
+
+export async function getEstimateByPublicToken(token: string): Promise<Record<string, unknown> | null> {
+  const rows = await sql`SELECT * FROM estimates WHERE customer_public_token = ${token} LIMIT 1`;
+  return rows[0] ? (rows[0] as Record<string, unknown>) : null;
+}
+
+export async function getLineItems(estimateId: string) {
+  return sql`
+    SELECT * FROM estimate_line_items WHERE estimate_id = ${estimateId}
+    ORDER BY sort_order ASC, created_at ASC
+  `;
+}
+
+export async function expireEstimateIfNeeded(row: Record<string, unknown>): Promise<EstimateStatus | null> {
+  const status = row.status as EstimateStatus;
+  if (status === 'expired' || status === 'converted' || status === 'rejected' || status === 'approved') return null;
+  const exp = row.expiration_date as string | null;
+  if (!exp) return null;
+  const expMs = Date.parse(exp);
+  if (!Number.isFinite(expMs) || Date.now() <= expMs) return null;
+  const id = row.id as string;
+  await sql`UPDATE estimates SET status = 'expired', expired_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}`;
+  await logActivity(id, 'expired', { at: new Date().toISOString() }, 'system', null);
+  return 'expired';
+}
+
+export type CreateEstimateInput = {
+  company_id?: string | null;
+  title: string;
+  description?: string | null;
+  customer_id?: string | null;
+  lead_id?: string | null;
+  job_id?: string | null;
+  receptionist_call_id?: string | null;
+  source_type?: string | null;
+  source_id?: string | null;
+  assigned_to_plumber_id?: string | null;
+  notes_internal?: string | null;
+  notes_customer?: string | null;
+  expiration_date?: string | null;
+  discount_amount_cents?: number;
+  tax_rate_basis_points?: number | null;
+  deposit_amount_cents?: number | null;
+  selected_option_group?: string | null;
+  /** After create, add line items from these catalog service ids (same company). */
+  catalog_service_ids?: string[] | null;
+  /** After create, add these line items (takes precedence over catalog_service_ids). */
+  initial_line_items?: Array<{
+    catalog_service_id?: string | null;
+    name: string;
+    description?: string | null;
+    quantity: number;
+    unit: string;
+    unit_price_cents: number;
+    is_taxable?: boolean;
+  }> | null;
+};
+
+export async function createEstimate(input: CreateEstimateInput): Promise<Record<string, unknown>> {
+  const companyId = await getDefaultCompanyId(input.company_id);
+  const settings = await ensureEstimateSettings(companyId);
+  const prefix = (settings.estimate_prefix as string) || 'EST';
+
+  const comp = (await sql`SELECT name, email, phone, address FROM companies WHERE id = ${companyId} LIMIT 1`)[0] as Record<
     string,
     unknown
   >;
 
-  let customerId: string | null = body.customer_id ?? null;
-  let leadId: string | null = body.lead_id ?? null;
-  let resolvedTitle = body.title || 'Estimate';
-  let custName = 'Customer';
-  let custEmail: string | null = null;
-  let custPhone: string | null = null;
-  let serviceAddr: string | null = null;
+  let customerName = 'Customer';
+  let customerEmail: string | null = null;
+  let customerPhone: string | null = null;
+  let serviceAddress: string | null = null;
 
-  if (leadId && !customerId) {
-    const lr = await sql`
-      SELECT l.*, c.id as cid, c.name as cname, c.email as cemail, c.phone as cphone, c.address as caddr
-      FROM leads l LEFT JOIN customers c ON c.id = l.customer_id WHERE l.id = ${leadId} LIMIT 1
-    `;
-    if (lr.length) {
-      const L = lr[0] as Record<string, unknown>;
-      customerId = (L.cid as string) || null;
-      custName = (L.cname as string) || custName;
-      custEmail = (L.cemail as string) || null;
-      custPhone = (L.cphone as string) || null;
-      serviceAddr = (L.location as string) || (L.caddr as string) || null;
-      if (!body.title) {
-        resolvedTitle = `Estimate — ${(L.issue as string) || 'Plumbing'}`;
+  if (input.customer_id) {
+    const c = (await sql`SELECT name, email, phone, address FROM customers WHERE id = ${input.customer_id} LIMIT 1`)[0] as
+      | Record<string, unknown>
+      | undefined;
+    if (c) {
+      customerName = (c.name as string) || customerName;
+      customerEmail = (c.email as string) || null;
+      customerPhone = (c.phone as string) || null;
+      serviceAddress = (c.address as string) || null;
+    }
+  }
+  if (input.lead_id) {
+    const l = (await sql`SELECT issue, location, customer_id FROM leads WHERE id = ${input.lead_id} LIMIT 1`)[0] as
+      | Record<string, unknown>
+      | undefined;
+    if (l) {
+      if (!input.customer_id && l.customer_id) {
+        input.customer_id = l.customer_id as string;
+        const c = (await sql`SELECT name, email, phone, address FROM customers WHERE id = ${input.customer_id} LIMIT 1`)[0] as
+          | Record<string, unknown>
+          | undefined;
+        if (c) {
+          customerName = (c.name as string) || customerName;
+          customerEmail = (c.email as string) || null;
+          customerPhone = (c.phone as string) || null;
+          serviceAddress = (c.address as string) || serviceAddress;
+        }
       }
+      if (!serviceAddress && l.location) serviceAddress = l.location as string;
     }
   }
 
-  if (customerId) {
-    const cr = (await sql`SELECT * FROM customers WHERE id = ${customerId} LIMIT 1`)[0] as Record<
-      string,
-      unknown
-    > | undefined;
-    if (cr) {
-      custName = (cr.name as string) || custName;
-      custEmail = (cr.email as string) || custEmail;
-      custPhone = (cr.phone as string) || custPhone;
-      serviceAddr = serviceAddr || (cr.address as string) || null;
-    }
-  }
-
-  if (body.receptionist_call_id) {
-    const rc = (
-      await sql`SELECT * FROM receptionist_calls WHERE id = ${body.receptionist_call_id} LIMIT 1`
-    )[0] as Record<string, unknown> | undefined;
-    if (rc) {
-      custName = (rc.caller_name as string) || custName;
-      custPhone = (rc.from_phone as string) || custPhone;
-      let ex: Record<string, unknown> = {};
-      try {
-        ex = rc.extracted_json ? (JSON.parse(rc.extracted_json as string) as Record<string, unknown>) : {};
-      } catch {
-        /* ignore */
-      }
-      serviceAddr = (ex.address as string) || serviceAddr;
-      custEmail = (ex.phone as string) ? custEmail : custEmail;
-      if (!body.title) resolvedTitle = `Estimate — ${(ex.issueDescription as string) || 'Plumbing service'}`;
-    }
-  }
-
-  if (body.job_id) {
-    const jr = (
+  if (input.job_id) {
+    const j = (
       await sql`
-        SELECT j.*, c.name as cname, c.email as cemail, c.phone as cphone, c.address as caddr
-        FROM jobs j
-        LEFT JOIN customers c ON c.id = j.customer_id
-        WHERE j.id = ${body.job_id} LIMIT 1
-      `
+      SELECT j.description, j.customer_id, c.name AS cn, c.email AS ce, c.phone AS cp, c.address AS ca
+      FROM jobs j
+      LEFT JOIN customers c ON j.customer_id = c.id
+      WHERE j.id = ${input.job_id} LIMIT 1
+    `
     )[0] as Record<string, unknown> | undefined;
-    if (jr) {
-      customerId = customerId || (jr.customer_id as string) || null;
-      leadId = leadId || (jr.lead_id as string) || null;
-      custName = (jr.cname as string) || custName;
-      custEmail = (jr.cemail as string) || custEmail;
-      custPhone = (jr.cphone as string) || custPhone;
-      serviceAddr = (jr.caddr as string) || serviceAddr;
+    if (j) {
+      if (!input.customer_id && j.customer_id) {
+        input.customer_id = j.customer_id as string;
+      }
+      if (j.cn) customerName = (j.cn as string) || customerName;
+      if (j.ce) customerEmail = (j.ce as string) || customerEmail;
+      if (j.cp) customerPhone = (j.cp as string) || customerPhone;
+      if (j.ca) serviceAddress = (j.ca as string) || serviceAddress;
     }
   }
 
-  const num = allocateEstimateNumber();
-  const token = newPublicToken();
-  const expDays = Number(settings?.default_expiration_days ?? 14);
-  const exp = new Date();
-  exp.setDate(exp.getDate() + expDays);
-  const expirationIso = exp.toISOString();
+  if (input.receptionist_call_id) {
+    const call = (
+      await sql`SELECT caller_name, from_phone, extracted_json FROM receptionist_calls WHERE id = ${input.receptionist_call_id} LIMIT 1`
+    )[0] as Record<string, unknown> | undefined;
+    if (call?.caller_name) customerName = (call.caller_name as string) || customerName;
+    if (call?.from_phone && !customerPhone) customerPhone = call.from_phone as string;
+    try {
+      const ex = call?.extracted_json ? JSON.parse(String(call.extracted_json)) : null;
+      if (ex && typeof ex === 'object') {
+        const addr = (ex as { address?: string }).address;
+        if (addr && !serviceAddress) serviceAddress = addr;
+        const ph = (ex as { phone?: string }).phone;
+        if (ph && !customerPhone) customerPhone = ph;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
-  const title = resolvedTitle;
-  const optionMode = body.option_presentation_mode || 'single';
+  const token = randomBytes(24).toString('hex');
+  const db = getDb();
+  const estimateNumber = allocateEstimateNumber(db, companyId, prefix);
+
+  let expiration = input.expiration_date ?? null;
+  if (!expiration) {
+    const days = Number(settings.default_expiration_days) || 30;
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    expiration = d.toISOString().slice(0, 10);
+  }
+
   const taxBps =
-    body.tax_rate_basis_points != null
-      ? body.tax_rate_basis_points
-      : (settings?.default_tax_rate_basis_points as number | null) ?? null;
+    input.tax_rate_basis_points ??
+    (settings.default_tax_rate_basis_points == null
+      ? null
+      : Number(settings.default_tax_rate_basis_points));
 
-  const ins = await sql`
+  const discount = input.discount_amount_cents ?? 0;
+  const estimateId = randomUUID();
+
+  const inserted = await sql`
     INSERT INTO estimates (
-      estimate_number, status, title, description, company_id,
+      id,
+      company_id, estimate_number, status, title, description,
       customer_id, lead_id, job_id, receptionist_call_id, source_type, source_id,
-      assigned_to_plumber_id,
-      currency,
+      assigned_to_plumber_id, currency,
       subtotal_amount_cents, discount_amount_cents, tax_amount_cents, total_amount_cents,
+      deposit_amount_cents,
       company_name_snapshot, company_email_snapshot, company_phone_snapshot, company_address_snapshot,
       customer_name_snapshot, customer_email_snapshot, customer_phone_snapshot, service_address_snapshot,
-      notes_internal, notes_customer,
-      expiration_date, customer_public_token,
-      option_presentation_mode, tax_rate_basis_points
-    )
-    VALUES (
-      ${num},
-      'draft',
-      ${title},
-      ${body.description ?? null},
+      notes_internal, notes_customer, expiration_date, customer_public_token,
+      version_number, tax_rate_basis_points, selected_option_group
+    ) VALUES (
+      ${estimateId},
       ${companyId},
-      ${customerId},
-      ${leadId},
-      ${body.job_id ?? null},
-      ${body.receptionist_call_id ?? null},
-      ${body.source_type ?? null},
-      ${body.source_id ?? null},
-      ${body.assigned_to_plumber_id ?? null},
+      ${estimateNumber},
+      'draft',
+      ${input.title},
+      ${input.description ?? null},
+      ${input.customer_id ?? null},
+      ${input.lead_id ?? null},
+      ${input.job_id ?? null},
+      ${input.receptionist_call_id ?? null},
+      ${input.source_type ?? null},
+      ${input.source_id ?? null},
+      ${input.assigned_to_plumber_id ?? null},
       'USD',
       0,
-      ${body.discount_amount_cents ?? 0},
+      ${discount},
       0,
       0,
-      ${(company?.name as string) || 'Company'},
-      ${(company?.email as string) || null},
-      ${(company?.phone as string) || null},
-      ${(company?.address as string) || null},
-      ${custName},
-      ${custEmail},
-      ${custPhone},
-      ${serviceAddr},
-      ${body.notes_internal ?? null},
-      ${body.notes_customer ?? null},
-      ${expirationIso},
+      ${input.deposit_amount_cents ?? null},
+      ${String(comp?.name || 'Company')},
+      ${(comp?.email as string) || null},
+      ${(comp?.phone as string) || null},
+      ${(comp?.address as string) || null},
+      ${customerName},
+      ${customerEmail},
+      ${customerPhone},
+      ${serviceAddress},
+      ${input.notes_internal ?? null},
+      ${input.notes_customer ?? null},
+      ${expiration},
       ${token},
-      ${optionMode},
-      ${taxBps}
+      1,
+      ${taxBps},
+      ${input.selected_option_group ?? null}
     )
     RETURNING *
   `;
-  const row = ins[0] as Record<string, unknown>;
-  const id = row.id as string;
-  await logEstimateActivity(id, 'created', { estimate_number: num }, 'staff', null);
-  return row;
+
+  const row = inserted[0] as Record<string, unknown>;
+  const estimateRowId = row.id as string;
+  await logActivity(estimateRowId, 'created', { title: input.title }, 'system', null);
+
+  const initialLines = input.initial_line_items?.filter((l) => l.name?.trim()) ?? [];
+  if (initialLines.length) {
+    for (const li of initialLines) {
+      await addEstimateLineItem(estimateRowId, {
+        name: li.name.trim(),
+        description: li.description?.trim() || null,
+        quantity: li.quantity,
+        unit: li.unit || 'ea',
+        unit_price_cents: li.unit_price_cents,
+        is_taxable: li.is_taxable !== false,
+        category: li.catalog_service_id ? 'Service' : null,
+      });
+    }
+  } else {
+    const catIds = input.catalog_service_ids?.filter(Boolean) ?? [];
+    if (catIds.length) {
+      const services = await getCatalogServicesByIds(companyId, catIds);
+      for (const svc of services) {
+        await addEstimateLineItem(estimateRowId, {
+          name: svc.name,
+          description: svc.description ?? null,
+          quantity: 1,
+          unit: 'ea',
+          unit_price_cents: svc.unit_price_cents,
+          is_taxable: true,
+          category: 'Service',
+        });
+      }
+    }
+  }
+  await recalculateAndPersistEstimate(estimateRowId);
+
+  return (await sql`SELECT * FROM estimates WHERE id = ${estimateRowId} LIMIT 1`)[0] as Record<string, unknown>;
 }
 
-async function expireIfNeededById(id: string) {
-  const row = (await sql`SELECT id, status, expiration_date FROM estimates WHERE id = ${id}`)[0] as
-    | Record<string, unknown>
-    | undefined;
-  if (!row || !row.expiration_date) return;
-  const exp = new Date(row.expiration_date as string).getTime();
-  if (Number.isNaN(exp) || Date.now() < exp) return;
-  const st = row.status as string;
-  if (!['sent', 'viewed', 'draft'].includes(st)) return;
-  await sql`
-    UPDATE estimates SET status = 'expired', expired_at = datetime('now'), updated_at = datetime('now')
-    WHERE id = ${id as string} AND status IN ('sent', 'viewed', 'draft')
-  `;
-  await logEstimateActivity(id as string, 'expired', { auto: true }, 'system', null);
-}
+export async function updateEstimate(
+  id: string,
+  patch: Partial<{
+    title: string;
+    description: string | null;
+    status: EstimateStatus;
+    notes_internal: string | null;
+    notes_customer: string | null;
+    expiration_date: string | null;
+    discount_amount_cents: number;
+    tax_rate_basis_points: number | null;
+    deposit_amount_cents: number | null;
+    assigned_to_plumber_id: string | null;
+    selected_option_group: string | null;
+  }>,
+): Promise<Record<string, unknown> | null> {
+  const cur = await getEstimateById(id);
+  if (!cur) return null;
+  const from = cur.status as EstimateStatus;
+  if (patch.status && patch.status !== from) {
+    assertStatusTransition(from, patch.status);
+  }
+  if (from === 'converted' && patch.status && patch.status !== 'converted') {
+    throw new Error('Cannot change a converted estimate');
+  }
 
-export async function getEstimateInternal(id: string) {
-  await expireIfNeededById(id);
-  const rows = await sql`
-    SELECT e.*,
-      c.name AS join_customer_name,
-      l.issue AS join_lead_issue,
-      j.type AS join_job_type
-    FROM estimates e
-    LEFT JOIN customers c ON c.id = e.customer_id
-    LEFT JOIN leads l ON l.id = e.lead_id
-    LEFT JOIN jobs j ON j.id = e.job_id
-    WHERE e.id = ${id} AND e.archived_at IS NULL
-    LIMIT 1
-  `;
-  return rows[0] as Record<string, unknown> | undefined;
-}
+  const title = patch.title !== undefined ? patch.title : (cur.title as string);
+  const description = patch.description !== undefined ? patch.description : (cur.description as string | null);
+  const status = patch.status !== undefined ? patch.status : from;
+  const notes_internal = patch.notes_internal !== undefined ? patch.notes_internal : (cur.notes_internal as string | null);
+  const notes_customer = patch.notes_customer !== undefined ? patch.notes_customer : (cur.notes_customer as string | null);
+  const expiration_date =
+    patch.expiration_date !== undefined ? patch.expiration_date : (cur.expiration_date as string | null);
+  const discount_amount_cents =
+    patch.discount_amount_cents !== undefined ? patch.discount_amount_cents : Number(cur.discount_amount_cents) || 0;
+  const tax_rate_basis_points =
+    patch.tax_rate_basis_points !== undefined ? patch.tax_rate_basis_points : (cur.tax_rate_basis_points as number | null);
+  const deposit_amount_cents =
+    patch.deposit_amount_cents !== undefined ? patch.deposit_amount_cents : (cur.deposit_amount_cents as number | null);
+  const assigned_to_plumber_id =
+    patch.assigned_to_plumber_id !== undefined ? patch.assigned_to_plumber_id : (cur.assigned_to_plumber_id as string | null);
+  const selected_option_group =
+    patch.selected_option_group !== undefined ? patch.selected_option_group : (cur.selected_option_group as string | null);
 
-export async function listEstimates(params: {
-  status?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}) {
-  const page = Math.max(1, params.page ?? 1);
-  const limit = Math.min(100, Math.max(1, params.limit ?? 50));
-  const offset = (page - 1) * limit;
-  const companyId = await getDefaultCompanyId();
-
-  let q = sql`
-    SELECT e.* FROM estimates e
-    WHERE e.company_id = ${companyId} AND e.archived_at IS NULL
-  `;
-  if (params.status && params.status !== 'all') {
-    q = sql`${q} AND e.status = ${params.status}`;
-  }
-  if (params.search?.trim()) {
-    const s = `%${params.search.trim()}%`;
-    q = sql`${q} AND (
-      e.estimate_number LIKE ${s}
-      OR e.customer_name_snapshot LIKE ${s}
-      OR e.title LIKE ${s}
-    )`;
-  }
-  const countBase = sql`
-    SELECT COUNT(*) as c FROM estimates e
-    WHERE e.company_id = ${companyId} AND e.archived_at IS NULL
-  `;
-  let countQ = countBase;
-  if (params.status && params.status !== 'all') {
-    countQ = sql`${countQ} AND e.status = ${params.status}`;
-  }
-  if (params.search?.trim()) {
-    const s = `%${params.search.trim()}%`;
-    countQ = sql`${countQ} AND (
-      e.estimate_number LIKE ${s}
-      OR e.customer_name_snapshot LIKE ${s}
-      OR e.title LIKE ${s}
-    )`;
-  }
-  const countRow = await countQ;
-  const total = Number((countRow[0] as { c: number }).c || 0);
-  const rows = await sql`${q} ORDER BY e.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
-  return { estimates: rows, total, page, limit };
-}
-
-async function applyCustomerToEstimate(estimateId: string, customerId: string | null) {
-  if (customerId === null) {
-    await sql`
-      UPDATE estimates SET
-        customer_id = NULL,
-        customer_name_snapshot = 'Customer',
-        customer_email_snapshot = NULL,
-        customer_phone_snapshot = NULL,
-        service_address_snapshot = NULL,
-        updated_at = datetime('now')
-      WHERE id = ${estimateId}
-    `;
-    return;
-  }
-  const cr = (await sql`SELECT * FROM customers WHERE id = ${customerId} LIMIT 1`)[0] as
-    | Record<string, unknown>
-    | undefined;
-  if (!cr) throw new Error('Customer not found');
-  const name = String(cr.name || 'Customer');
-  const email = (cr.email as string) || null;
-  const phone = (cr.phone as string) || null;
-  const addr = (cr.address as string) || null;
   await sql`
     UPDATE estimates SET
-      customer_id = ${customerId},
-      customer_name_snapshot = ${name},
-      customer_email_snapshot = ${email},
-      customer_phone_snapshot = ${phone},
-      service_address_snapshot = ${addr},
+      title = ${title},
+      description = ${description},
+      status = ${status},
+      notes_internal = ${notes_internal},
+      notes_customer = ${notes_customer},
+      expiration_date = ${expiration_date},
+      discount_amount_cents = ${discount_amount_cents},
+      tax_rate_basis_points = ${tax_rate_basis_points},
+      deposit_amount_cents = ${deposit_amount_cents},
+      assigned_to_plumber_id = ${assigned_to_plumber_id},
+      selected_option_group = ${selected_option_group},
       updated_at = datetime('now')
-    WHERE id = ${estimateId}
+    WHERE id = ${id}
   `;
-}
 
-export async function patchEstimate(id: string, patch: z.infer<typeof patchEstimateBodySchema>) {
-  const existing = await getEstimateInternal(id);
-  if (!existing) throw new Error('Estimate not found');
-  if (['converted', 'archived'].includes(existing.status as string)) {
-    throw new Error('Cannot edit converted or archived estimate');
-  }
-  if (
-    existing.status === 'approved' &&
-    (patch.discount_amount_cents !== undefined ||
-      patch.title !== undefined ||
-      patch.customer_id !== undefined)
-  ) {
-    throw new Error('Approved estimates cannot be edited; duplicate to revise');
-  }
-
-  if (patch.title !== undefined) {
-    await sql`UPDATE estimates SET title = ${patch.title}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.description !== undefined) {
-    await sql`UPDATE estimates SET description = ${patch.description}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.notes_internal !== undefined) {
-    await sql`UPDATE estimates SET notes_internal = ${patch.notes_internal}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.notes_customer !== undefined) {
-    await sql`UPDATE estimates SET notes_customer = ${patch.notes_customer}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.discount_amount_cents !== undefined) {
-    await sql`UPDATE estimates SET discount_amount_cents = ${patch.discount_amount_cents}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.expiration_date !== undefined) {
-    await sql`UPDATE estimates SET expiration_date = ${patch.expiration_date}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.assigned_to_plumber_id !== undefined) {
-    await sql`UPDATE estimates SET assigned_to_plumber_id = ${patch.assigned_to_plumber_id}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.option_presentation_mode !== undefined) {
-    await sql`UPDATE estimates SET option_presentation_mode = ${patch.option_presentation_mode}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.tax_rate_basis_points !== undefined) {
-    await sql`UPDATE estimates SET tax_rate_basis_points = ${patch.tax_rate_basis_points}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.deposit_amount_cents !== undefined) {
-    await sql`UPDATE estimates SET deposit_amount_cents = ${patch.deposit_amount_cents}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.status !== undefined) {
-    await sql`UPDATE estimates SET status = ${patch.status}, updated_at = datetime('now') WHERE id = ${id}`;
-  }
-  if (patch.customer_id !== undefined) {
-    await applyCustomerToEstimate(id, patch.customer_id);
-  }
-
-  await recalculateEstimateTotals(id);
-  await logEstimateActivity(id, 'updated', patch, 'staff', null);
-  return getEstimateInternal(id);
+  await recalculateAndPersistEstimate(id);
+  await logActivity(id, 'updated', { patch: Object.keys(patch) }, 'system', null);
+  return getEstimateById(id);
 }
 
 export async function archiveEstimate(id: string) {
-  await sql`UPDATE estimates SET archived_at = datetime('now'), status = 'archived', updated_at = datetime('now') WHERE id = ${id}`;
-  await logEstimateActivity(id, 'archived', {}, 'staff', null);
+  await sql`UPDATE estimates SET status = 'archived', updated_at = datetime('now') WHERE id = ${id}`;
+  await logActivity(id, 'archived', {}, 'system', null);
 }
 
-export async function addLineItem(estimateId: string, body: z.infer<typeof lineItemBodySchema>) {
-  const existing = await getEstimateInternal(estimateId);
-  if (!existing) throw new Error('Estimate not found');
-  if (['approved', 'rejected', 'converted', 'expired', 'archived'].includes(existing.status as string)) {
-    throw new Error('Cannot edit line items for this status');
-  }
-  const maxRow = await sql`SELECT MAX(sort_order) as m FROM estimate_line_items WHERE estimate_id = ${estimateId}`;
-  const nextOrder = Number((maxRow[0] as { m: number | null })?.m ?? -1) + 1;
-  const sortOrder = body.sort_order ?? nextOrder;
-  const qty = body.quantity;
-  const up = body.unit_price_cents;
-  const total = computeLineTotalCents(qty, up);
-  const ins = await sql`
+export async function addEstimateLineItem(
+  estimateId: string,
+  item: {
+    category?: string | null;
+    name: string;
+    description?: string | null;
+    quantity: number;
+    unit: string;
+    unit_price_cents: number;
+    is_optional?: boolean;
+    is_taxable?: boolean;
+    option_group?: string | null;
+    sort_order?: number;
+  },
+): Promise<Record<string, unknown>> {
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  if ((est.status as string) === 'converted') throw new Error('Cannot edit converted estimate');
+  if ((est.status as string) === 'approved') throw new Error('Approve flow: duplicate to revise an approved estimate');
+
+  const maxRow = await sql`SELECT COALESCE(MAX(sort_order), -1) AS m FROM estimate_line_items WHERE estimate_id = ${estimateId}`;
+  const nextOrder = item.sort_order ?? Number((maxRow[0] as { m: number }).m) + 1;
+  const ext = lineExtendedCents(item.quantity, item.unit_price_cents);
+  const lineItemId = randomUUID();
+  const inserted = await sql`
     INSERT INTO estimate_line_items (
+      id,
       estimate_id, sort_order, category, name, description, quantity, unit,
-      unit_price_cents, total_price_cents, is_optional, is_taxable, option_group, included_in_package
-    )
-    VALUES (
+      unit_price_cents, total_price_cents, is_optional, is_taxable, option_group
+    ) VALUES (
+      ${lineItemId},
       ${estimateId},
-      ${sortOrder},
-      ${body.category ?? null},
-      ${body.name},
-      ${body.description ?? null},
-      ${qty},
-      ${body.unit},
-      ${up},
-      ${total},
-      ${body.is_optional ? 1 : 0},
-      ${body.is_taxable === false ? 0 : 1},
-      ${body.option_group ?? null},
-      ${body.included_in_package === false ? 0 : 1}
+      ${nextOrder},
+      ${item.category ?? null},
+      ${item.name},
+      ${item.description ?? null},
+      ${item.quantity},
+      ${item.unit},
+      ${item.unit_price_cents},
+      ${ext},
+      ${item.is_optional ? 1 : 0},
+      ${item.is_taxable === false ? 0 : 1},
+      ${item.option_group ?? null}
     )
     RETURNING *
   `;
-  await recalculateEstimateTotals(estimateId);
-  await logEstimateActivity(estimateId, 'line_item_added', { line_id: (ins[0] as { id: string }).id }, 'staff', null);
-  return ins[0];
+  await recalculateAndPersistEstimate(estimateId);
+  await logActivity(estimateId, 'line_item_added', { line_id: (inserted[0] as { id: string }).id }, 'system', null);
+  return inserted[0] as Record<string, unknown>;
 }
 
-export async function updateLineItem(
+export async function updateEstimateLineItem(
   estimateId: string,
   lineId: string,
-  patch: z.infer<typeof patchLineItemBodySchema>,
+  patch: Partial<{
+    category: string | null;
+    name: string;
+    description: string | null;
+    quantity: number;
+    unit: string;
+    unit_price_cents: number;
+    is_optional: boolean;
+    is_taxable: boolean;
+    option_group: string | null;
+    sort_order: number;
+  }>,
 ) {
-  const existing = await getEstimateInternal(estimateId);
-  if (!existing) throw new Error('Estimate not found');
-  if (['approved', 'rejected', 'converted', 'expired', 'archived'].includes(existing.status as string)) {
-    throw new Error('Cannot edit line items');
-  }
-  const line = (await sql`SELECT * FROM estimate_line_items WHERE id = ${lineId} AND estimate_id = ${estimateId}`)[0] as
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  if ((est.status as string) === 'converted' || (est.status as string) === 'approved')
+    throw new Error('Cannot edit line items on approved/converted estimates');
+
+  const line = (await sql`SELECT * FROM estimate_line_items WHERE id = ${lineId} AND estimate_id = ${estimateId} LIMIT 1`)[0] as
     | Record<string, unknown>
     | undefined;
   if (!line) throw new Error('Line item not found');
 
   const category = patch.category !== undefined ? patch.category : (line.category as string | null);
-  const name = patch.name ?? (line.name as string);
+  const name = patch.name !== undefined ? patch.name : (line.name as string);
   const description = patch.description !== undefined ? patch.description : (line.description as string | null);
-  const qty = patch.quantity ?? Number(line.quantity);
-  const unit = patch.unit ?? (line.unit as string);
-  const up = patch.unit_price_cents ?? Number(line.unit_price_cents);
-  const isOpt = patch.is_optional !== undefined ? patch.is_optional : Boolean(line.is_optional);
-  const isTax = patch.is_taxable !== undefined ? patch.is_taxable : Boolean(line.is_taxable);
-  const optG = patch.option_group !== undefined ? patch.option_group : (line.option_group as string | null);
-  const inc = patch.included_in_package !== undefined ? patch.included_in_package : Boolean(line.included_in_package ?? 1);
-  const total = computeLineTotalCents(qty, up);
+  const q = patch.quantity !== undefined ? patch.quantity : Number(line.quantity);
+  const unit = patch.unit !== undefined ? patch.unit : (line.unit as string);
+  const up = patch.unit_price_cents !== undefined ? patch.unit_price_cents : Number(line.unit_price_cents);
+  const ext = lineExtendedCents(q, up);
+  const is_optional = patch.is_optional !== undefined ? (patch.is_optional ? 1 : 0) : Number(line.is_optional);
+  const is_taxable = patch.is_taxable !== undefined ? (patch.is_taxable ? 1 : 0) : Number(line.is_taxable);
+  const option_group = patch.option_group !== undefined ? patch.option_group : (line.option_group as string | null);
+  const sort_order = patch.sort_order !== undefined ? patch.sort_order : Number(line.sort_order);
 
   await sql`
     UPDATE estimate_line_items SET
       category = ${category},
       name = ${name},
       description = ${description},
-      quantity = ${qty},
+      quantity = ${q},
       unit = ${unit},
       unit_price_cents = ${up},
-      total_price_cents = ${total},
-      is_optional = ${isOpt ? 1 : 0},
-      is_taxable = ${isTax ? 1 : 0},
-      option_group = ${optG},
-      included_in_package = ${inc ? 1 : 0},
+      total_price_cents = ${ext},
+      is_optional = ${is_optional},
+      is_taxable = ${is_taxable},
+      option_group = ${option_group},
+      sort_order = ${sort_order},
       updated_at = datetime('now')
-    WHERE id = ${lineId} AND estimate_id = ${estimateId}
+    WHERE id = ${lineId}
   `;
-  await recalculateEstimateTotals(estimateId);
-  await logEstimateActivity(estimateId, 'line_item_updated', { line_id: lineId }, 'staff', null);
+  await recalculateAndPersistEstimate(estimateId);
+  await logActivity(estimateId, 'line_item_updated', { line_id: lineId }, 'system', null);
 }
 
-export async function deleteLineItem(estimateId: string, lineId: string) {
+export async function deleteEstimateLineItem(estimateId: string, lineId: string) {
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  if ((est.status as string) === 'converted' || (est.status as string) === 'approved')
+    throw new Error('Cannot delete line items on approved/converted estimates');
   await sql`DELETE FROM estimate_line_items WHERE id = ${lineId} AND estimate_id = ${estimateId}`;
-  await recalculateEstimateTotals(estimateId);
-  await logEstimateActivity(estimateId, 'line_item_deleted', { line_id: lineId }, 'staff', null);
+  await recalculateAndPersistEstimate(estimateId);
+  await logActivity(estimateId, 'line_item_deleted', { line_id: lineId }, 'system', null);
 }
 
-export async function reorderLineItems(estimateId: string, orderedIds: string[]) {
+export async function reorderEstimateLineItems(estimateId: string, orderedIds: string[]) {
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  if ((est.status as string) === 'converted' || (est.status as string) === 'approved')
+    throw new Error('Cannot reorder on approved/converted estimates');
   let i = 0;
   for (const lid of orderedIds) {
     await sql`UPDATE estimate_line_items SET sort_order = ${i}, updated_at = datetime('now') WHERE id = ${lid} AND estimate_id = ${estimateId}`;
     i += 1;
   }
-  await logEstimateActivity(estimateId, 'line_items_reordered', { order: orderedIds }, 'staff', null);
-}
-
-function publicBaseUrl() {
-  return (process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.APP_BASE_URL || 'http://localhost:3001').replace(
-    /\/$/,
-    '',
-  );
-}
-
-export function buildPublicEstimateUrl(token: string) {
-  return `${publicBaseUrl()}/estimate/${token}`;
+  await logActivity(estimateId, 'updated', { reorder: true }, 'system', null);
 }
 
 export async function sendEstimate(
   estimateId: string,
-  opts: { recipient_email?: string; delivery_type?: string },
+  opts?: {
+    recipientEmail?: string | null;
+    recipientPhone?: string | null;
+    channel?: 'email' | 'sms' | 'auto';
+    emailSubject?: string | null;
+    emailBody?: string | null;
+    /** When Clerk is enabled, tries Gmail / Microsoft Graph before Resend. */
+    clerkUserId?: string | null;
+  },
 ) {
-  const row = await getEstimateInternal(estimateId);
-  if (!row) throw new Error('Estimate not found');
-  if (row.status === 'converted') throw new Error('Already converted');
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  const st = est.status as EstimateStatus;
+  if (st !== 'draft' && st !== 'sent' && st !== 'viewed') throw new Error('Estimate cannot be sent from this status');
 
-  const url = buildPublicEstimateUrl(row.customer_public_token as string);
-  const manualLink = opts.delivery_type === 'manual_copy_link' || opts.delivery_type === 'sms_share_link';
+  const base = publicAppBaseUrl();
+  const publicUrl = `${base}/estimate/${est.customer_public_token as string}`;
+  const email = opts?.recipientEmail?.trim() || (est.customer_email_snapshot as string) || '';
+  const phone = opts?.recipientPhone?.trim() || (est.customer_phone_snapshot as string) || '';
+  const channel = opts?.channel ?? 'auto';
 
-  const recipient =
-    opts.recipient_email ||
-    (row.customer_email_snapshot as string) ||
-    (manualLink ? 'link-only@local.invalid' : null);
-  if (!recipient) {
-    throw new Error('No recipient email; set customer email, pass recipient_email, or use manual_copy_link');
-  }
-
-  const payload: EstimateDeliveryPayload = {
+  const inputBase: DeliverySendInput = {
     estimateId,
-    estimateNumber: row.estimate_number as string,
-    recipient,
-    customerName: (row.customer_name_snapshot as string) || 'Customer',
-    title: (row.title as string) || 'Estimate',
-    totalCents: Number(row.total_amount_cents ?? 0),
-    currency: (row.currency as string) || 'USD',
-    publicUrl: url,
-    expirationDate: (row.expiration_date as string) || null,
+    estimateNumber: String(est.estimate_number),
+    customerName: String(est.customer_name_snapshot),
+    title: String(est.title),
+    totalCents: Number(est.total_amount_cents) || 0,
+    expirationDate: (est.expiration_date as string) || null,
+    publicUrl,
+    recipientEmail: null,
+    recipientPhone: null,
+    emailSubject: opts?.emailSubject ?? null,
+    emailBody: opts?.emailBody ?? null,
   };
 
-  let deliveryId: string;
-  let outcome: { provider: string; ok: boolean; subject?: string; bodyText?: string };
-  if (manualLink) {
-    const ins = await sql`
-      INSERT INTO estimate_delivery (
-        estimate_id, delivery_type, recipient, subject, body_snapshot, provider,
-        status, public_link, sent_at
-      )
-      VALUES (
-        ${estimateId},
-        ${opts.delivery_type || 'manual_copy_link'},
-        ${recipient},
-        ${`Estimate ${row.estimate_number}`},
-        ${`Share link: ${url}`},
-        'mock',
-        'sent',
-        ${url},
-        ${new Date().toISOString()}
-      )
-      RETURNING id
-    `;
-    deliveryId = (ins[0] as { id: string }).id;
-    outcome = { provider: 'mock', ok: true, subject: `Estimate ${row.estimate_number}`, bodyText: url };
+  let result: DeliveryResult;
+  let deliveryType: string;
+  let recipientRecord: string;
+
+  if (channel === 'sms') {
+    const sms = new TwilioSmsEstimateDeliveryProvider();
+    result = await sms.send({ ...inputBase, recipientEmail: null, recipientPhone: phone || null });
+    deliveryType = 'sms_share_link';
+    recipientRecord = phone || publicUrl;
+  } else if (channel === 'email') {
+    result = await sendEmailWithMailboxFirst(opts?.clerkUserId, {
+      ...inputBase,
+      recipientEmail: email || null,
+    });
+    deliveryType = email ? 'email' : 'manual_copy_link';
+    recipientRecord = email || publicUrl;
   } else {
-    const run = await runEstimateDelivery(payload);
-    deliveryId = run.deliveryId;
-    outcome = run.outcome;
+    if (email) {
+      result = await sendEmailWithMailboxFirst(opts?.clerkUserId, {
+        ...inputBase,
+        recipientEmail: email,
+      });
+      deliveryType = 'email';
+      recipientRecord = email;
+    } else if (phone) {
+      const sms = new TwilioSmsEstimateDeliveryProvider();
+      result = await sms.send({ ...inputBase, recipientEmail: null, recipientPhone: phone });
+      deliveryType = 'sms_share_link';
+      recipientRecord = phone;
+    } else {
+      const mock = new MockEstimateDeliveryProvider();
+      result = await mock.send({ ...inputBase, recipientEmail: null });
+      deliveryType = 'manual_copy_link';
+      recipientRecord = publicUrl;
+    }
   }
 
+  const deliveryStatus = result.status === 'sent' ? 'sent' : 'failed';
+  const deliveryId = randomUUID();
   await sql`
-    UPDATE estimates SET
-      status = 'sent',
-      sent_at = COALESCE(sent_at, datetime('now')),
-      updated_at = datetime('now')
-    WHERE id = ${estimateId}
+    INSERT INTO estimate_delivery (
+      id,
+      estimate_id, delivery_type, recipient, subject, body_snapshot, provider, provider_message_id, status, sent_at, failed_at, error_message
+    ) VALUES (
+      ${deliveryId},
+      ${estimateId},
+      ${deliveryType},
+      ${recipientRecord},
+      ${result.subject},
+      ${result.body},
+      ${result.provider},
+      ${result.provider_message_id},
+      ${deliveryStatus},
+      ${result.status === 'sent' ? new Date().toISOString() : null},
+      ${result.status === 'failed' ? new Date().toISOString() : null},
+      ${result.error_message ?? null}
+    )
   `;
 
-  const prevStatus = row.status as string;
-  const eventType = prevStatus === 'sent' || prevStatus === 'viewed' ? 'resent' : 'sent';
-  await logEstimateActivity(
-    estimateId,
-    eventType,
-    { delivery_id: deliveryId, provider: outcome.provider, recipient },
-    'staff',
-    null,
-  );
-  return { deliveryId, outcome, publicUrl: url };
-}
-
-export async function getEstimatePublicByToken(token: string) {
-  const rows = await sql`
-    SELECT * FROM estimates WHERE customer_public_token = ${token} AND archived_at IS NULL LIMIT 1
-  `;
-  const row = rows[0] as Record<string, unknown> | undefined;
-  if (!row) return null;
-  if (row.status === 'draft') return null;
-  await expireIfNeededById(row.id as string);
-  const again = (await sql`SELECT * FROM estimates WHERE customer_public_token = ${token} LIMIT 1`)[0] as Record<
-    string,
-    unknown
-  >;
-  return again;
-}
-
-export async function markPublicViewed(token: string) {
-  const row = await getEstimatePublicByToken(token);
-  if (!row) return null;
-  if (row.status === 'draft') return row;
-  const first = !row.viewed_at;
-  if (first) {
+  if (result.status === 'sent') {
+    const prev = st;
     await sql`
       UPDATE estimates SET
-        viewed_at = datetime('now'),
-        status = CASE WHEN status = 'sent' THEN 'viewed' ELSE status END,
+        status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END,
+        sent_at = COALESCE(sent_at, datetime('now')),
         updated_at = datetime('now')
-      WHERE customer_public_token = ${token}
+      WHERE id = ${estimateId}
     `;
-    await logEstimateActivity(row.id as string, 'viewed', { public: true }, 'customer', null);
-    await logEstimateActivity(row.id as string, 'public_link_opened', {}, 'customer', null);
+    await logActivity(estimateId, prev === 'draft' ? 'sent' : 'resent', { provider: result.provider }, 'system', null);
   }
-  return (await sql`SELECT * FROM estimates WHERE customer_public_token = ${token}`)[0];
+
+  return { publicUrl, delivery: result };
 }
 
-export function sanitizeEstimateForPublic(row: Record<string, unknown>) {
-  const {
-    notes_internal: _ni,
-    created_by_plumber_id: _cb,
-    assigned_to_plumber_id: _ab,
-    archived_at: _ar,
-    customer_public_token: _tok,
-    company_id: _cid,
-    lead_id: _lid,
-    job_id: _jid,
-    receptionist_call_id: _rc,
-    source_type: _st,
-    source_id: _sid,
-    prior_estimate_id: _pe,
-    id: _id,
-    ...rest
-  } = row;
-  void _ni;
-  void _cb;
-  void _ab;
-  void _ar;
-  void _tok;
-  void _cid;
-  void _lid;
-  void _jid;
-  void _rc;
-  void _st;
-  void _sid;
-  void _pe;
-  void _id;
-  return rest;
+export async function markEstimateViewedByToken(token: string) {
+  const row = await getEstimateByPublicToken(token);
+  if (!row) return null;
+  await expireEstimateIfNeeded(row);
+  const fresh = await getEstimateByPublicToken(token);
+  if (!fresh) return null;
+  if ((fresh.status as string) === 'expired') return fresh;
+
+  if (fresh.status === 'sent') {
+    await sql`UPDATE estimates SET status = 'viewed', viewed_at = datetime('now'), updated_at = datetime('now') WHERE id = ${fresh.id as string}`;
+    await logActivity(fresh.id as string, 'viewed', {}, 'customer', null);
+  } else {
+    await sql`UPDATE estimates SET viewed_at = COALESCE(viewed_at, datetime('now')), updated_at = datetime('now') WHERE id = ${fresh.id as string}`;
+  }
+  await logActivity(fresh.id as string, 'public_link_opened', {}, 'customer', null);
+  return getEstimateByPublicToken(token);
 }
 
-export async function approvePublicEstimate(
+export async function approveEstimateByToken(
   token: string,
-  body: { customer_selected_option_group?: string | null; confirmation_acknowledged?: boolean; signature_text?: string | null },
+  opts?: { acknowledge?: boolean; signerName?: string | null },
 ) {
-  const row = await getEstimatePublicByToken(token);
+  const row = await getEstimateByPublicToken(token);
   if (!row) throw new Error('Not found');
-  if (['approved', 'rejected', 'expired', 'converted', 'draft', 'archived'].includes(row.status as string)) {
-    if (row.status === 'approved') return row;
-    throw new Error(`Cannot approve from status ${row.status}`);
+  await expireEstimateIfNeeded(row);
+  const fresh = (await getEstimateByPublicToken(token))!;
+  if ((fresh.status as string) === 'expired') throw new Error('Estimate expired');
+  if ((fresh.status as string) === 'draft') throw new Error('Estimate has not been sent yet');
+  if ((fresh.status as string) === 'approved') return fresh;
+  if ((fresh.status as string) === 'rejected') throw new Error('Already rejected');
+  if ((fresh.status as string) === 'converted') throw new Error('Already converted');
+
+  const companyId = fresh.company_id as string;
+  const settings = await ensureEstimateSettings(companyId);
+  if (Number(settings.customer_signature_required)) {
+    if (!opts?.acknowledge) {
+      throw new Error('Please confirm that you approve this estimate (checkbox required).');
+    }
   }
-  const settings = (await sql`SELECT * FROM estimate_settings WHERE id = 'default'`)[0] as Record<string, unknown>;
-  if (Number(settings?.customer_signature_required ?? 1) === 1 && !body.confirmation_acknowledged) {
-    throw new Error('Confirmation required to approve');
+
+  const { depositBlocksPublicApproval } = await import('@/lib/payments/policy');
+  if (await depositBlocksPublicApproval(fresh)) {
+    throw new Error(
+      'Please pay the required deposit online to approve this estimate (use Pay deposit on the estimate page).',
+    );
   }
-  if (row.option_presentation_mode === 'tiered' && !body.customer_selected_option_group?.trim()) {
-    throw new Error('Please select an option package before approving');
-  }
+
   await sql`
-    UPDATE estimates SET
-      status = 'approved',
-      approved_at = datetime('now'),
-      customer_selected_option_group = ${body.customer_selected_option_group ?? null},
-      updated_at = datetime('now')
-    WHERE customer_public_token = ${token}
+    UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ${fresh.id as string}
   `;
-  await logEstimateActivity(row.id as string, 'approved', { ...body, public: true }, 'customer', null);
-  return (await sql`SELECT * FROM estimates WHERE id = ${row.id as string}`)[0];
+  await logActivity(fresh.id as string, 'approved', { signer_name: opts?.signerName ?? null }, 'customer', null);
+  return getEstimateByPublicToken(token);
 }
 
-export async function rejectPublicEstimate(token: string, body: { reason?: string | null }) {
-  const settings = (await sql`SELECT allow_customer_reject FROM estimate_settings WHERE id = 'default'`)[0] as
-    | Record<string, unknown>
-    | undefined;
-  if (settings && Number(settings.allow_customer_reject ?? 1) === 0) throw new Error('Rejection not enabled');
-  const row = await getEstimatePublicByToken(token);
+export async function rejectEstimateByToken(token: string, reason?: string | null) {
+  const row = await getEstimateByPublicToken(token);
   if (!row) throw new Error('Not found');
-  if (!['sent', 'viewed'].includes(row.status as string)) throw new Error('Cannot reject');
+  const companyId = row.company_id as string;
+  const settings = await ensureEstimateSettings(companyId);
+  if (!Number(settings.allow_customer_reject)) {
+    throw new Error('Rejection disabled for this company');
+  }
+  await expireEstimateIfNeeded(row);
+  const fresh = (await getEstimateByPublicToken(token))!;
+  if ((fresh.status as string) === 'expired') throw new Error('Estimate expired');
+  if ((fresh.status as string) === 'approved') throw new Error('Already approved');
+  if ((fresh.status as string) === 'rejected') return fresh;
+
   await sql`
     UPDATE estimates SET status = 'rejected', rejected_at = datetime('now'), updated_at = datetime('now')
-    WHERE customer_public_token = ${token}
+    WHERE id = ${fresh.id as string}
   `;
-  await logEstimateActivity(row.id as string, 'rejected', { ...body, public: true }, 'customer', null);
-  return (await sql`SELECT * FROM estimates WHERE id = ${row.id as string}`)[0];
+  await logActivity(fresh.id as string, 'rejected', { reason: reason ?? null }, 'customer', null);
+  return getEstimateByPublicToken(token);
 }
 
-export async function approveManually(id: string) {
-  const row = await getEstimateInternal(id);
-  if (!row) throw new Error('Not found');
-  if (row.status === 'converted') throw new Error('Already converted');
-  await sql`
-    UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}
-  `;
-  await logEstimateActivity(id, 'approved', { manual: true }, 'staff', null);
+export async function approveEstimateManually(id: string) {
+  const est = await getEstimateById(id);
+  if (!est) throw new Error('Not found');
+  const st = est.status as EstimateStatus;
+  if (st === 'converted') throw new Error('Already converted');
+  if (st === 'approved') return est;
+  if (st === 'expired') throw new Error('Expired estimate must be duplicated or re-dated before approval');
+  const { depositBlocksConvert } = await import('@/lib/payments/policy');
+  if (await depositBlocksConvert(est)) {
+    await sql`
+      UPDATE estimates SET
+        status = 'approved',
+        approved_at = datetime('now'),
+        deposit_status = 'waived',
+        updated_at = datetime('now')
+      WHERE id = ${id}
+    `;
+    await logActivity(id, 'manually_approved', { deposit: 'waived_by_staff' }, 'staff', null);
+  } else {
+    await sql`UPDATE estimates SET status = 'approved', approved_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}`;
+    await logActivity(id, 'manually_approved', {}, 'staff', null);
+  }
+  return getEstimateById(id);
 }
 
-export async function rejectManually(id: string) {
-  await sql`
-    UPDATE estimates SET status = 'rejected', rejected_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}
-  `;
-  await logEstimateActivity(id, 'rejected', { manual: true }, 'staff', null);
+export async function rejectEstimateManually(id: string) {
+  const est = await getEstimateById(id);
+  if (!est) throw new Error('Not found');
+  const st = est.status as EstimateStatus;
+  if (st === 'converted') throw new Error('Already converted');
+  await sql`UPDATE estimates SET status = 'rejected', rejected_at = datetime('now'), updated_at = datetime('now') WHERE id = ${id}`;
+  await logActivity(id, 'manually_rejected', {}, 'staff', null);
+  return getEstimateById(id);
 }
 
-export async function convertEstimateToJob(estimateId: string) {
-  const row = await getEstimateInternal(estimateId);
-  if (!row) throw new Error('Not found');
-  if (row.converted_to_job_id) throw new Error('Already converted to job');
-  if (row.status !== 'approved') throw new Error('Estimate must be approved');
+export async function convertEstimateToJob(estimateId: string): Promise<{ job: Record<string, unknown>; estimate: Record<string, unknown> }> {
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Estimate not found');
+  if (est.converted_to_job_id || (est.status as string) === 'converted') {
+    throw new Error('Already converted');
+  }
+  if ((est.status as string) !== 'approved') throw new Error('Only approved estimates can be converted');
 
-  const companyId = row.company_id as string;
-  const lines = await fetchLineRows(estimateId);
-  const opt = row.customer_selected_option_group as string | null;
-  const lineSummary = lines
-    .filter((l) => {
-      if (!opt || !l.option_group) return true;
-      return (l.option_group as string) === opt || l.option_group === '_default';
-    })
-    .map((l) => `${l.name as string} x${l.quantity}`)
-    .join('; ');
+  const { depositBlocksConvert } = await import('@/lib/payments/policy');
+  if (await depositBlocksConvert(est)) {
+    throw new Error('Deposit must be collected (or waived by staff approval) before converting to a job.');
+  }
 
-  const desc = `${row.title as string}\n${lineSummary}`.slice(0, 8000);
-  const total = Number(row.total_amount_cents ?? 0) / 100;
-  const jobNotes = [row.notes_customer as string | null, row.notes_internal as string | null]
-    .filter(Boolean)
-    .join('\n---\n')
-    .slice(0, 8000);
+  const companyId = est.company_id as string;
+  const type = (est.title as string).slice(0, 120) || 'Estimate work';
+  const descriptionParts = [est.description as string | null, est.notes_customer as string | null].filter(Boolean);
+  const description = descriptionParts.join('\n\n') || null;
+  const notes = [`From estimate ${est.estimate_number}`, est.notes_internal as string | null].filter(Boolean).join('\n');
 
-  const ins = await sql`
+  const jobId = randomUUID();
+  const jobInsert = await sql`
     INSERT INTO jobs (
-      company_id, lead_id, customer_id, plumber_id, status, type, description,
-      estimated_price, notes, source_estimate_id
-    )
-    VALUES (
+      id,
+      company_id, lead_id, customer_id, status, type, description, notes, estimated_price
+    ) VALUES (
+      ${jobId},
       ${companyId},
-      ${row.lead_id as string | null},
-      ${row.customer_id as string | null},
-      ${row.assigned_to_plumber_id as string | null},
+      ${(est.lead_id as string) || null},
+      ${(est.customer_id as string) || null},
       'scheduled',
-      'Estimate approved work',
-      ${desc},
-      ${total},
-      ${jobNotes || null},
-      ${estimateId}
+      ${type},
+      ${description},
+      ${notes || null},
+      ${(Number(est.total_amount_cents) || 0) / 100}
     )
-    RETURNING id
+    RETURNING *
   `;
-  const jobId = (ins[0] as { id: string }).id;
+  const job = jobInsert[0] as Record<string, unknown>;
 
+  await sql`UPDATE jobs SET source_estimate_id = ${estimateId}, updated_at = datetime('now') WHERE id = ${job.id as string}`;
   await sql`
     UPDATE estimates SET
       status = 'converted',
-      converted_to_job_id = ${jobId},
+      converted_to_job_id = ${job.id as string},
       updated_at = datetime('now')
     WHERE id = ${estimateId}
   `;
-  await logEstimateActivity(estimateId, 'converted_to_job', { job_id: jobId }, 'staff', null);
-  return { jobId };
+  await logActivity(estimateId, 'converted_to_job', { job_id: job.id }, 'system', null);
+
+  return { job, estimate: (await getEstimateById(estimateId))! };
 }
 
-export async function duplicateEstimate(id: string) {
-  const row = await getEstimateInternal(id);
-  if (!row) throw new Error('Not found');
-  const num = allocateEstimateNumber();
-  const token = newPublicToken();
-  const ver = Number(row.version_number ?? 1) + 1;
+export async function duplicateEstimate(estimateId: string): Promise<Record<string, unknown>> {
+  const est = await getEstimateById(estimateId);
+  if (!est) throw new Error('Not found');
+  const companyId = est.company_id as string;
+  const settings = await ensureEstimateSettings(companyId);
+  const prefix = (settings.estimate_prefix as string) || 'EST';
+  const token = randomBytes(24).toString('hex');
+  const db = getDb();
+  const estimateNumber = allocateEstimateNumber(db, companyId, prefix);
+  const ver = Number(est.version_number) + 1;
+  const newEstimateId = randomUUID();
 
-  const ins = await sql`
+  const inserted = await sql`
     INSERT INTO estimates (
-      estimate_number, status, title, description, company_id,
-      customer_id, lead_id, job_id, receptionist_call_id,
-      assigned_to_plumber_id,
-      currency,
-      subtotal_amount_cents, discount_amount_cents, tax_amount_cents, total_amount_cents, deposit_amount_cents,
+      id,
+      company_id, estimate_number, status, title, description,
+      customer_id, lead_id, job_id, receptionist_call_id, source_type, source_id,
+      assigned_to_plumber_id, currency,
+      subtotal_amount_cents, discount_amount_cents, tax_amount_cents, total_amount_cents,
+      deposit_amount_cents,
       company_name_snapshot, company_email_snapshot, company_phone_snapshot, company_address_snapshot,
       customer_name_snapshot, customer_email_snapshot, customer_phone_snapshot, service_address_snapshot,
-      notes_internal, notes_customer,
-      expiration_date, customer_public_token,
-      version_number, prior_estimate_id,
-      option_presentation_mode, tax_rate_basis_points
-    )
-    SELECT
-      ${num},
+      notes_internal, notes_customer, expiration_date, customer_public_token,
+      version_number, parent_estimate_id, tax_rate_basis_points, selected_option_group
+    ) VALUES (
+      ${newEstimateId},
+      ${companyId},
+      ${estimateNumber},
       'draft',
-      title || ' (copy)',
-      description,
-      company_id,
-      customer_id, lead_id, job_id, receptionist_call_id,
-      assigned_to_plumber_id,
-      currency,
-      subtotal_amount_cents, discount_amount_cents, tax_amount_cents, total_amount_cents, deposit_amount_cents,
-      company_name_snapshot, company_email_snapshot, company_phone_snapshot, company_address_snapshot,
-      customer_name_snapshot, customer_email_snapshot, customer_phone_snapshot, service_address_snapshot,
-      notes_internal, notes_customer,
-      expiration_date,
+      ${est.title},
+      ${est.description},
+      ${est.customer_id},
+      ${est.lead_id},
+      ${est.job_id},
+      ${est.receptionist_call_id},
+      ${est.source_type},
+      ${est.source_id},
+      ${est.assigned_to_plumber_id},
+      ${est.currency || 'USD'},
+      ${est.subtotal_amount_cents},
+      ${est.discount_amount_cents},
+      ${est.tax_amount_cents},
+      ${est.total_amount_cents},
+      ${est.deposit_amount_cents},
+      ${est.company_name_snapshot},
+      ${est.company_email_snapshot},
+      ${est.company_phone_snapshot},
+      ${est.company_address_snapshot},
+      ${est.customer_name_snapshot},
+      ${est.customer_email_snapshot},
+      ${est.customer_phone_snapshot},
+      ${est.service_address_snapshot},
+      ${est.notes_internal},
+      ${est.notes_customer},
+      ${est.expiration_date},
       ${token},
       ${ver},
-      ${id},
-      option_presentation_mode, tax_rate_basis_points
-    FROM estimates WHERE id = ${id}
-    RETURNING id
+      ${estimateId},
+      ${est.tax_rate_basis_points},
+      ${est.selected_option_group}
+    )
+    RETURNING *
   `;
-  const newId = (ins[0] as { id: string }).id;
+  const newRow = inserted[0] as Record<string, unknown>;
+  const newId = newRow.id as string;
 
-  const lines = await sql`SELECT * FROM estimate_line_items WHERE estimate_id = ${id}`;
-  for (const l of lines as Record<string, unknown>[]) {
+  const lines = await sql`SELECT * FROM estimate_line_items WHERE estimate_id = ${estimateId} ORDER BY sort_order`;
+  for (const li of lines) {
+    const l = li as Record<string, unknown>;
+    const dupLineId = randomUUID();
     await sql`
       INSERT INTO estimate_line_items (
+        id,
         estimate_id, sort_order, category, name, description, quantity, unit,
-        unit_price_cents, total_price_cents, is_optional, is_taxable, option_group, included_in_package
-      )
-      VALUES (
+        unit_price_cents, total_price_cents, is_optional, is_taxable, option_group
+      ) VALUES (
+        ${dupLineId},
         ${newId},
         ${l.sort_order},
         ${l.category},
@@ -864,144 +1052,167 @@ export async function duplicateEstimate(id: string) {
         ${l.total_price_cents},
         ${l.is_optional},
         ${l.is_taxable},
-        ${l.option_group},
-        ${l.included_in_package}
+        ${l.option_group}
       )
     `;
   }
-  await recalculateEstimateTotals(newId);
-  await logEstimateActivity(newId, 'created', { duplicated_from: id, version: ver }, 'staff', null);
-  return getEstimateInternal(newId);
+
+  await recalculateAndPersistEstimate(newId);
+  await logActivity(newId, 'created', { duplicated_from: estimateId }, 'system', null);
+  await logActivity(estimateId, 'duplicated', { new_estimate_id: newId }, 'system', null);
+  return (await getEstimateById(newId))!;
 }
 
-export async function getActivity(estimateId: string) {
-  return sql`SELECT * FROM estimate_activity WHERE estimate_id = ${estimateId} ORDER BY created_at ASC`;
+export async function buildEstimatePresentation(estimateId: string, opts?: { internal?: boolean }) {
+  const est = await getEstimateById(estimateId);
+  if (!est) return null;
+  const lines = await getLineItems(estimateId);
+  const settings = await ensureEstimateSettings(est.company_id as string);
+  const publicUrl = `${publicAppBaseUrl()}/estimate/${est.customer_public_token}`;
+
+  const companyId = est.company_id as string;
+  const paySettings = await getCompanyPaymentSettings(companyId);
+  const depCents = estimateDepositAmountCents(est);
+  const depStat = String(est.deposit_status || 'none');
+  const stripeOn = stripeConfigured();
+  const mustPayBeforeApprove = await depositBlocksPublicApproval(est);
+  const payment = {
+    stripeSecretConfigured: stripeOn,
+    onlinePaymentsEnabled: paySettings.online_payments_enabled,
+    estimateDepositsEnabled: paySettings.estimate_deposits_enabled,
+    invoicePaymentsEnabled: paySettings.invoice_payments_enabled,
+    depositAmountCents: depCents,
+    depositStatus: depStat,
+    mustPayBeforeApprove,
+    depositCheckoutAvailable:
+      stripeOn &&
+      paySettings.online_payments_enabled &&
+      paySettings.estimate_deposits_enabled &&
+      depCents > 0,
+  };
+
+  const estView = opts?.internal ? est : { ...est, notes_internal: undefined };
+  const emailDraftInput: DeliverySendInput = {
+    estimateId,
+    estimateNumber: String(est.estimate_number),
+    customerName: String(est.customer_name_snapshot),
+    title: String(est.title),
+    totalCents: Number(est.total_amount_cents) || 0,
+    expirationDate: (est.expiration_date as string) || null,
+    publicUrl,
+    recipientEmail: null,
+  };
+  const template = buildEstimateEmailCopy(emailDraftInput);
+  const emailDraft = opts?.internal
+    ? {
+        defaultSubject: template.subject,
+        defaultBody: template.body,
+        toEmail: (est.customer_email_snapshot as string) || null,
+        customerPhone: (est.customer_phone_snapshot as string) || null,
+      }
+    : undefined;
+
+  return {
+    estimate: estView,
+    lineItems: lines,
+    branding: {
+      companyName: settings.company_name,
+      logoUrl: settings.logo_url,
+      accentColor: settings.accent_color || '#0f766e',
+      footer: settings.estimate_footer_text,
+      terms: settings.default_terms_text,
+    },
+    approval: {
+      customerSignatureRequired: Boolean(Number(settings.customer_signature_required)),
+      allowCustomerReject: Boolean(Number(settings.allow_customer_reject)),
+    },
+    publicUrl,
+    payment,
+    ...(emailDraft ? { emailDraft } : {}),
+  };
 }
 
-export async function getDeliveries(estimateId: string) {
+export async function getEstimateActivity(estimateId: string) {
+  return sql`SELECT * FROM estimate_activity WHERE estimate_id = ${estimateId} ORDER BY created_at DESC`;
+}
+
+export async function getEstimateDeliveries(estimateId: string) {
   return sql`SELECT * FROM estimate_delivery WHERE estimate_id = ${estimateId} ORDER BY created_at DESC`;
 }
 
-export async function getEstimateSettings() {
-  const rows = await sql`SELECT * FROM estimate_settings WHERE id = 'default'`;
-  return rows[0] as Record<string, unknown>;
-}
+export async function patchEstimateSettings(
+  companyId: string,
+  patch: Partial<{
+    company_name: string;
+    logo_url: string | null;
+    accent_color: string | null;
+    estimate_footer_text: string | null;
+    default_terms_text: string | null;
+    default_expiration_days: number;
+    default_tax_rate_basis_points: number | null;
+    estimate_prefix: string;
+    default_deposit_enabled: boolean;
+    default_deposit_percent_basis_points: number | null;
+    customer_signature_required: boolean;
+    allow_customer_reject: boolean;
+    public_approval_requires_token: boolean;
+  }>,
+) {
+  const cur = (await ensureEstimateSettings(companyId)) as Record<string, unknown>;
+  const next = {
+    company_name: patch.company_name ?? cur.company_name,
+    logo_url: patch.logo_url !== undefined ? patch.logo_url : cur.logo_url,
+    accent_color: patch.accent_color !== undefined ? patch.accent_color : cur.accent_color,
+    estimate_footer_text:
+      patch.estimate_footer_text !== undefined ? patch.estimate_footer_text : cur.estimate_footer_text,
+    default_terms_text: patch.default_terms_text !== undefined ? patch.default_terms_text : cur.default_terms_text,
+    default_expiration_days:
+      patch.default_expiration_days !== undefined ? patch.default_expiration_days : cur.default_expiration_days,
+    default_tax_rate_basis_points:
+      patch.default_tax_rate_basis_points !== undefined
+        ? patch.default_tax_rate_basis_points
+        : cur.default_tax_rate_basis_points,
+    estimate_prefix: patch.estimate_prefix ?? cur.estimate_prefix,
+    default_deposit_enabled:
+      patch.default_deposit_enabled !== undefined ? (patch.default_deposit_enabled ? 1 : 0) : cur.default_deposit_enabled,
+    default_deposit_percent_basis_points:
+      patch.default_deposit_percent_basis_points !== undefined
+        ? patch.default_deposit_percent_basis_points
+        : cur.default_deposit_percent_basis_points,
+    customer_signature_required:
+      patch.customer_signature_required !== undefined
+        ? patch.customer_signature_required
+          ? 1
+          : 0
+        : cur.customer_signature_required,
+    allow_customer_reject:
+      patch.allow_customer_reject !== undefined ? (patch.allow_customer_reject ? 1 : 0) : cur.allow_customer_reject,
+    public_approval_requires_token:
+      patch.public_approval_requires_token !== undefined
+        ? patch.public_approval_requires_token
+          ? 1
+          : 0
+        : cur.public_approval_requires_token,
+  };
 
-export async function patchEstimateSettings(patch: Record<string, unknown>) {
-  if (patch.company_name !== undefined) {
-    await sql`UPDATE estimate_settings SET company_name = ${String(patch.company_name)}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.logo_url !== undefined) {
-    await sql`UPDATE estimate_settings SET logo_url = ${patch.logo_url as string | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.accent_color !== undefined) {
-    await sql`UPDATE estimate_settings SET accent_color = ${patch.accent_color as string | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.estimate_footer_text !== undefined) {
-    await sql`UPDATE estimate_settings SET estimate_footer_text = ${patch.estimate_footer_text as string | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.default_terms_text !== undefined) {
-    await sql`UPDATE estimate_settings SET default_terms_text = ${patch.default_terms_text as string | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.default_expiration_days !== undefined) {
-    await sql`UPDATE estimate_settings SET default_expiration_days = ${Number(patch.default_expiration_days)}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.default_tax_rate_basis_points !== undefined) {
-    await sql`UPDATE estimate_settings SET default_tax_rate_basis_points = ${patch.default_tax_rate_basis_points as number | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.estimate_prefix !== undefined) {
-    await sql`UPDATE estimate_settings SET estimate_prefix = ${String(patch.estimate_prefix)}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.default_deposit_enabled !== undefined) {
-    await sql`UPDATE estimate_settings SET default_deposit_enabled = ${patch.default_deposit_enabled ? 1 : 0}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.default_deposit_percent_basis_points !== undefined) {
-    await sql`UPDATE estimate_settings SET default_deposit_percent_basis_points = ${patch.default_deposit_percent_basis_points as number | null}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.customer_signature_required !== undefined) {
-    await sql`UPDATE estimate_settings SET customer_signature_required = ${patch.customer_signature_required ? 1 : 0}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.allow_customer_reject !== undefined) {
-    await sql`UPDATE estimate_settings SET allow_customer_reject = ${patch.allow_customer_reject ? 1 : 0}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  if (patch.public_approval_requires_token !== undefined) {
-    await sql`UPDATE estimate_settings SET public_approval_requires_token = ${patch.public_approval_requires_token ? 1 : 0}, updated_at = datetime('now') WHERE id = 'default'`;
-  }
-  return getEstimateSettings();
-}
-
-export async function getEstimateDashboardStats() {
-  const companyId = await getDefaultCompanyId();
-  const rows = await sql`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_c,
-      SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_c,
-      SUM(CASE WHEN status = 'viewed' THEN 1 ELSE 0 END) as viewed_c,
-      SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_c,
-      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_c,
-      SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired_c,
-      SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted_c,
-      SUM(total_amount_cents) as total_value_cents
-    FROM estimates
-    WHERE company_id = ${companyId} AND archived_at IS NULL
+  await sql`
+    UPDATE estimate_settings SET
+      company_name = ${next.company_name},
+      logo_url = ${next.logo_url},
+      accent_color = ${next.accent_color},
+      estimate_footer_text = ${next.estimate_footer_text},
+      default_terms_text = ${next.default_terms_text},
+      default_expiration_days = ${next.default_expiration_days},
+      default_tax_rate_basis_points = ${next.default_tax_rate_basis_points},
+      estimate_prefix = ${next.estimate_prefix},
+      default_deposit_enabled = ${next.default_deposit_enabled},
+      default_deposit_percent_basis_points = ${next.default_deposit_percent_basis_points},
+      customer_signature_required = ${next.customer_signature_required},
+      allow_customer_reject = ${next.allow_customer_reject},
+      public_approval_requires_token = ${next.public_approval_requires_token},
+      updated_at = datetime('now')
+    WHERE company_id = ${companyId}
   `;
-  const r = rows[0] as Record<string, unknown>;
-  const sent = Number(r.sent_c || 0) + Number(r.viewed_c || 0);
-  const approved = Number(r.approved_c || 0) + Number(r.converted_c || 0);
-  const approvalRate = sent > 0 ? approved / sent : 0;
-  return {
-    total: Number(r.total || 0),
-    draft: Number(r.draft_c || 0),
-    sent: Number(r.sent_c || 0),
-    viewed: Number(r.viewed_c || 0),
-    approved: Number(r.approved_c || 0),
-    rejected: Number(r.rejected_c || 0),
-    expired: Number(r.expired_c || 0),
-    converted: Number(r.converted_c || 0),
-    totalValueCents: Number(r.total_value_cents || 0),
-    approvalRate,
-  };
-}
-
-export function buildEstimatePresentation(row: Record<string, unknown>, lines: Record<string, unknown>[]) {
-  return {
-    estimate: row,
-    lineItems: lines,
-    formatted: {
-      subtotal: (Number(row.subtotal_amount_cents) / 100).toFixed(2),
-      tax: (Number(row.tax_amount_cents) / 100).toFixed(2),
-      discount: (Number(row.discount_amount_cents) / 100).toFixed(2),
-      total: (Number(row.total_amount_cents) / 100).toFixed(2),
-    },
-  };
-}
-
-export async function getEstimateAdminDetail(id: string) {
-  const est = await getEstimateInternal(id);
-  if (!est) return null;
-  const lines = await fetchLineRows(id);
-  const activity = await getActivity(id);
-  const deliveries = await getDeliveries(id);
-  const presentation = buildEstimatePresentation(est, lines);
-  return { estimate: est, lines, activity, deliveries, presentation };
-}
-
-export async function getCustomerEstimatePageData(token: string) {
-  await markPublicViewed(token);
-  const row = await getEstimatePublicByToken(token);
-  if (!row) return null;
-  const lines = await fetchLineRows(row.id as string);
-  const branding = (
-    await sql`
-      SELECT company_name, logo_url, accent_color, estimate_footer_text, default_terms_text,
-        allow_customer_reject
-      FROM estimate_settings WHERE id = 'default' LIMIT 1
-    `
-  )[0] as Record<string, unknown>;
-  return {
-    estimate: sanitizeEstimateForPublic(row),
-    lines,
-    branding: branding || {},
-  };
+  const rows = await sql`SELECT * FROM estimate_settings WHERE company_id = ${companyId} LIMIT 1`;
+  return rows[0];
 }

@@ -1,28 +1,42 @@
-import { sendEstimate } from '@/lib/estimates/service';
-import { sendEstimateBodySchema } from '@/lib/estimates/validation';
 import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
+import { z } from 'zod';
+import { auth } from '@clerk/nextjs/server';
+import { sendEstimate } from '@/lib/estimates/service';
+import { getPortalUser } from '@/lib/auth/portal-user';
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Unknown error';
+const bodySchema = z.object({
+  recipientEmail: z.string().email().optional().nullable(),
+  recipientPhone: z.string().min(3).max(32).optional().nullable(),
+  channel: z.enum(['email', 'sms', 'auto']).optional(),
+  emailSubject: z.string().max(500).optional().nullable(),
+  emailBody: z.string().max(32000).optional().nullable(),
+});
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function POST(request: Request, ctx: Ctx) {
   try {
+    const portalUser = await getPortalUser();
+    if (!portalUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await ctx.params;
     const json = await request.json().catch(() => ({}));
-    const body = sendEstimateBodySchema.parse(json);
+    const body = bodySchema.parse(json);
+
+    const { userId: clerkUserId } = await auth();
+
     const result = await sendEstimate(id, {
-      recipient_email: body.recipient_email,
-      delivery_type: body.delivery_type,
+      recipientEmail: body.recipientEmail,
+      recipientPhone: body.recipientPhone,
+      channel: body.channel,
+      emailSubject: body.emailSubject,
+      emailBody: body.emailBody,
+      clerkUserId,
     });
     return NextResponse.json(result);
-  } catch (error: unknown) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: 'Validation failed', issues: error.flatten() }, { status: 400 });
-    }
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 400 });
   }
 }

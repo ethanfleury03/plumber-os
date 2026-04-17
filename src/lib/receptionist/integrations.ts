@@ -172,7 +172,32 @@ export async function linkReceptionistCallToCallLog(
   `;
 }
 
-export async function getCompanyIdForReceptionist() {
+/**
+ * Resolve the company that owns the inbound Twilio number for a receptionist
+ * call. Preference order:
+ *   1. `companies.twilio_phone_number` exact match (legacy single-number setup).
+ *   2. `company_phone_numbers.phone_e164` (multi-number setup).
+ *   3. Fallback to the first/demo company (dev/test only).
+ *
+ * The `toPhone` arg is the E.164 number Twilio dialed (the `To` param on the
+ * inbound voice webhook). Pass null to deliberately fall back.
+ */
+export async function getCompanyIdForReceptionist(toPhone?: string | null) {
+  if (toPhone) {
+    const normalized = toPhone.trim();
+    try {
+      const phoneRows = await sql`
+        SELECT company_id FROM company_phone_numbers
+        WHERE phone_e164 = ${normalized}
+        LIMIT 1
+      `;
+      if (phoneRows.length > 0) {
+        return String((phoneRows[0] as Record<string, unknown>).company_id);
+      }
+    } catch {
+      // Table may not exist on older DBs; fall through to default company.
+    }
+  }
   return getOrCreateCompanyId(null);
 }
 

@@ -44,21 +44,32 @@ export async function syncMockScenariosToDb() {
   }
 }
 
-export async function ensureReceptionistSettings(): Promise<ReceptionistSettingsRow> {
-  const rows = (await sql`
-    SELECT * FROM receptionist_settings ORDER BY created_at ASC LIMIT 1
-  `) as unknown as ReceptionistSettingsRow[];
+export async function ensureReceptionistSettings(
+  companyId?: string | null,
+): Promise<ReceptionistSettingsRow> {
+  const rows = companyId
+    ? ((await sql`
+        SELECT * FROM receptionist_settings
+        WHERE company_id = ${companyId}
+        ORDER BY created_at ASC LIMIT 1
+      `) as unknown as ReceptionistSettingsRow[])
+    : ((await sql`
+        SELECT * FROM receptionist_settings ORDER BY created_at ASC LIMIT 1
+      `) as unknown as ReceptionistSettingsRow[]);
 
   if (rows.length > 0) {
     const r = rows[0] as unknown as ReceptionistSettingsRow;
     return { ...r, retell_agent_id: r.retell_agent_id ?? null };
   }
 
-  const company = await sql`SELECT name FROM companies ORDER BY created_at ASC LIMIT 1`;
+  const company = companyId
+    ? await sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1`
+    : await sql`SELECT name FROM companies ORDER BY created_at ASC LIMIT 1`;
   const companyName = (company[0]?.name as string) || 'PlumberOS';
 
   const inserted = (await sql`
     INSERT INTO receptionist_settings (
+      company_id,
       company_name,
       greeting,
       disclosure_enabled,
@@ -77,6 +88,7 @@ export async function ensureReceptionistSettings(): Promise<ReceptionistSettings
       retell_agent_id
     )
     VALUES (
+      ${companyId || null},
       ${companyName},
       ${`Thanks for calling ${companyName}. I'm an AI assistant — how can we help?`},
       1,
@@ -575,8 +587,29 @@ export async function reprocessReceptionistCall(callId: string) {
   return (await sql`SELECT * FROM receptionist_calls WHERE id = ${callId}`)[0];
 }
 
-export async function listReceptionistCalls(page: number, limit: number) {
+export async function listReceptionistCalls(
+  page: number,
+  limit: number,
+  opts?: { companyId?: string },
+) {
   const offset = (page - 1) * limit;
+  const hasCompanyColumn = await receptionistCallsHasCompanyId();
+  if (opts?.companyId && hasCompanyColumn) {
+    const rows = await sql`
+      SELECT rc.*, l.issue as lead_issue
+      FROM receptionist_calls rc
+      LEFT JOIN leads l ON rc.lead_id = l.id
+      WHERE rc.company_id = ${opts.companyId}
+      ORDER BY rc.started_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    const countRow = await sql`
+      SELECT COUNT(*) as total FROM receptionist_calls WHERE company_id = ${opts.companyId}
+    `;
+    const total = Number(countRow[0]?.total || 0);
+    return { calls: rows, total };
+  }
+
   const rows = await sql`
     SELECT rc.*, l.issue as lead_issue
     FROM receptionist_calls rc
@@ -587,6 +620,22 @@ export async function listReceptionistCalls(page: number, limit: number) {
   const countRow = await sql`SELECT COUNT(*) as total FROM receptionist_calls`;
   const total = Number(countRow[0]?.total || 0);
   return { calls: rows, total };
+}
+
+let _receptionistCallsCompanyIdChecked = false;
+let _receptionistCallsHasCompanyId = false;
+async function receptionistCallsHasCompanyId(): Promise<boolean> {
+  if (_receptionistCallsCompanyIdChecked) return _receptionistCallsHasCompanyId;
+  try {
+    const rows = (await sql`PRAGMA table_info(receptionist_calls)`) as unknown as Array<{
+      name: string;
+    }>;
+    _receptionistCallsHasCompanyId = rows.some((r) => r.name === 'company_id');
+  } catch {
+    _receptionistCallsHasCompanyId = false;
+  }
+  _receptionistCallsCompanyIdChecked = true;
+  return _receptionistCallsHasCompanyId;
 }
 
 export async function getReceptionistCallDetail(callId: string) {
@@ -976,9 +1025,11 @@ export async function createInboundRetellCallRow(params: {
   twilioCallSid: string;
   fromPhone: string;
   toPhone: string;
+  companyId?: string | null;
 }) {
   const rows = await sql`
     INSERT INTO receptionist_calls (
+      company_id,
       provider,
       twilio_call_sid,
       direction,
@@ -989,6 +1040,7 @@ export async function createInboundRetellCallRow(params: {
       current_transcript_index
     )
     VALUES (
+      ${params.companyId || null},
       'retell',
       ${params.twilioCallSid},
       'inbound',

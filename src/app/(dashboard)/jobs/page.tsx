@@ -318,7 +318,12 @@ export default function JobsPage() {
                     <tr key={job.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{job.customer_name || '-'}</p>
+                          <Link
+                            href={`/jobs/${job.id}`}
+                            className="font-medium text-gray-900 hover:text-blue-600 hover:underline block"
+                          >
+                            {job.customer_name || 'Open job'}
+                          </Link>
                           <p className="text-xs text-gray-500">{job.customer_address || '-'}</p>
                         </div>
                       </td>
