@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { Search, Bell, Plus, MoreHorizontal, Calendar, Clock, MapPin, X } from 'lucide-react';
+import { Search, Bell, Plus, MoreHorizontal, Calendar, Clock, MapPin, X, FileSpreadsheet } from 'lucide-react';
 
 interface Job {
   id: string;
@@ -27,6 +28,7 @@ interface Job {
   customer_address?: string;
   plumber_name?: string;
   lead_issue?: string;
+  source_estimate_id?: string | null;
 }
 
 interface JobStats {
@@ -353,6 +355,21 @@ export default function JobsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
+                          <Link
+                            href={`/estimates/new?job_id=${encodeURIComponent(job.id)}`}
+                            className="p-2 hover:bg-blue-50 rounded-lg text-gray-400 hover:text-blue-600"
+                            title="New estimate from job"
+                          >
+                            <FileSpreadsheet className="w-4 h-4" />
+                          </Link>
+                          {job.source_estimate_id ? (
+                            <Link
+                              href={`/estimates/${job.source_estimate_id}`}
+                              className="text-xs text-blue-600 font-medium hover:underline px-1"
+                            >
+                              Estimate
+                            </Link>
+                          ) : null}
                           <button 
                             onClick={() => handleDelete(job.id)}
                             className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500"

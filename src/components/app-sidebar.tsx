@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   Users,
   FileText,
+  FileSpreadsheet,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -32,6 +33,7 @@ const CRM_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 const PRIMARY_NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
+  { href: '/estimates', label: 'Estimates', icon: FileSpreadsheet },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/map', label: 'Map', icon: MapPin },
   { href: '/team', label: 'Team', icon: UserCog },

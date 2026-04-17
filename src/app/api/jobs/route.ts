@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     }
 
     const result = await sql`
-      INSERT INTO jobs (company_id, lead_id, customer_id, plumber_id, status, type, description, scheduled_date, scheduled_time, estimated_price, notes)
+      INSERT INTO jobs (company_id, lead_id, customer_id, plumber_id, status, type, description, scheduled_date, scheduled_time, estimated_price, notes, source_estimate_id)
       VALUES (
         ${companyId},
         ${body.lead_id || null},
@@ -103,7 +103,8 @@ export async function POST(request: Request) {
         ${body.scheduled_date || null},
         ${body.scheduled_time || null},
         ${body.estimated_price || null},
-        ${body.notes || null}
+        ${body.notes || null},
+        ${body.source_estimate_id || null}
       )
       RETURNING *
     `;

@@ -226,7 +226,14 @@ export default function ReceptionistCallDetailPage() {
                 </p>
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <Link
+                href={`/estimates/new?receptionist_call_id=${encodeURIComponent(id)}`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+              >
+                <ClipboardList className="w-4 h-4" aria-hidden />
+                New estimate
+              </Link>
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
                 {String(call.provider || 'mock')}
               </span>

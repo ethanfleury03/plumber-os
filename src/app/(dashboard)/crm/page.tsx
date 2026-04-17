@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { Search, Bell, Plus, X, GripVertical, Pencil, Trash2, Check, Loader2 } from 'lucide-react';
+import { Search, Bell, Plus, X, GripVertical, Pencil, Trash2, Check, Loader2, FileSpreadsheet } from 'lucide-react';
 
 interface Card {
   id: string;
@@ -679,19 +680,30 @@ export default function CrmPage() {
               </div>
               
               {/* Actions */}
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={handleGenerateInvoice}
-                  className="btn-primary flex-1 flex items-center justify-center gap-2 text-white px-5 py-3 rounded-xl font-semibold"
-                >
-                  📄 Generate Invoice
-                </button>
-                <button 
-                  onClick={() => { /* TODO: Edit functionality */ }}
-                  className="btn-secondary px-5 py-3 text-gray-700 rounded-xl font-semibold"
-                >
-                  ✏️ Edit
-                </button>
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="flex gap-3">
+                  <button 
+                    onClick={handleGenerateInvoice}
+                    className="btn-primary flex-1 flex items-center justify-center gap-2 text-white px-5 py-3 rounded-xl font-semibold"
+                  >
+                    📄 Generate Invoice
+                  </button>
+                  <button 
+                    onClick={() => { /* TODO: Edit functionality */ }}
+                    className="btn-secondary px-5 py-3 text-gray-700 rounded-xl font-semibold"
+                  >
+                    ✏️ Edit
+                  </button>
+                </div>
+                {selectedCard.type === 'lead' && selectedCard.leadId ? (
+                  <Link
+                    href={`/estimates/new?lead_id=${encodeURIComponent(selectedCard.leadId)}`}
+                    className="btn-secondary w-full flex items-center justify-center gap-2 px-5 py-3 text-gray-700 rounded-xl font-semibold border border-gray-200"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    New estimate
+                  </Link>
+                ) : null}
               </div>
             </div>
           </div>

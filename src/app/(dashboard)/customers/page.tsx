@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Mail, X } from 'lucide-react';
+import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Mail, X, FileSpreadsheet } from 'lucide-react';
 
 interface Customer {
   id: string;
@@ -261,6 +262,13 @@ export default function CustomersPage() {
                       <td className="px-6 py-4 text-gray-500 text-sm">{formatDate(customer.last_job_date || '')}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
+                          <Link
+                            href={`/estimates/new?customer_id=${encodeURIComponent(customer.id)}`}
+                            className="p-2 hover:bg-blue-50 rounded-lg text-gray-400 hover:text-blue-600"
+                            title="New estimate"
+                          >
+                            <FileSpreadsheet className="w-4 h-4" />
+                          </Link>
                           <button 
                             onClick={() => handleDelete(customer.id)}
                             className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500"

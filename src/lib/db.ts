@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { applyReceptionistMigrations } from '@/lib/receptionist/sqlite-migrate';
+import { applyEstimatesMigrations } from '@/lib/estimates/sqlite-migrate';
 
 function bindValue(v: unknown): unknown {
   if (v === undefined) return null;
@@ -88,9 +89,10 @@ export function getDb(): Database.Database {
   dbInstance = new Database(file);
   dbInstance.pragma('journal_mode = DELETE');
   dbInstance.pragma('foreign_keys = ON');
-  dbInstance.function('uuid', randomUUID);
+  dbInstance.function('uuid', () => randomUUID());
   ensureCommittedSchema(dbInstance);
   applyReceptionistMigrations(dbInstance);
+  applyEstimatesMigrations(dbInstance);
 
   return dbInstance;
 }
