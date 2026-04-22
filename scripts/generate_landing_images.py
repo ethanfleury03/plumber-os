@@ -33,7 +33,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "scripts" / "landing-images.json"
-OUTPUT_DIR = ROOT / "public" / "landing"
+DEFAULT_OUTPUT_DIR = ROOT / "public" / "landing"
 
 
 def load_config() -> dict:
@@ -110,7 +110,12 @@ def run(only: set[str] | None, dry_run: bool) -> int:
     for slot in slots:
         name = slot["name"]
         target_size = (int(slot["width"]), int(slot["height"]))
-        dest = OUTPUT_DIR / f"{name}.jpg"
+        slot_out_dir = slot.get("output_dir")
+        if slot_out_dir:
+            out_dir = (ROOT / slot_out_dir).resolve()
+        else:
+            out_dir = DEFAULT_OUTPUT_DIR
+        dest = out_dir / f"{name}.jpg"
         print(f"[{name}] generating ({target_size[0]}x{target_size[1]}) -> {dest}")
 
         prompt = build_prompt(cfg["style"], cfg["negative"], slot)
@@ -134,7 +139,11 @@ def run(only: set[str] | None, dry_run: bool) -> int:
             continue
 
         save_as_jpeg(raw, dest, target_size)
-        print(f"  ok -> {dest.relative_to(ROOT)}")
+        try:
+            rel = dest.relative_to(ROOT)
+        except ValueError:
+            rel = dest
+        print(f"  ok -> {rel}")
 
     return 0
 

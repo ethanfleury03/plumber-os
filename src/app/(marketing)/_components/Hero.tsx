@@ -42,18 +42,18 @@ export function Hero() {
                   Start free 14-day trial
                   <ArrowRight className="h-4 w-4" />
                 </Link>
-                <a href="#workflow" className="btn-ghost">
+                <Link href="/features#workflow" className="btn-ghost">
                   See how it works
-                </a>
+                </Link>
               </Show>
               <Show when="signed-in">
                 <Link href="/app" className="btn-primary">
                   Open your dashboard
                   <ArrowRight className="h-4 w-4" />
                 </Link>
-                <a href="#features" className="btn-ghost">
+                <Link href="/features" className="btn-ghost">
                   Explore features
-                </a>
+                </Link>
               </Show>
             </div>
 
@@ -64,11 +64,11 @@ export function Hero() {
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-[var(--brand-orange-500)]" />
-                Set up in under 20 minutes
+                Launch in one afternoon
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-[var(--brand-orange-500)]" />
-                Stripe payouts in 2 days
+                Built-in online payments
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-[var(--brand-orange-500)]" />
@@ -85,33 +85,34 @@ export function Hero() {
                 width={hero.width}
                 height={hero.height}
                 priority
+                sizes="(min-width: 1024px) 48vw, 100vw"
                 className="rounded-2xl shadow-[0_40px_80px_-30px_rgba(0,0,0,0.7)] object-cover w-full h-auto"
               />
 
               <div className="hidden sm:block absolute -left-10 top-10 w-72 brand-card p-4 text-[var(--brand-ink)]">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[var(--brand-orange-600)]">
                   <PhoneCall className="h-3.5 w-3.5" />
-                  Live call · 00:14
+                  Live receptionist handoff
                 </div>
-                <p className="mt-2 text-sm font-semibold">Caller: Maria Delgado</p>
+                <p className="mt-2 text-sm font-semibold">Incoming emergency request</p>
                 <p className="text-xs text-[var(--brand-slate-muted)] leading-snug mt-1">
-                  &ldquo;Water heater leaking in the basement, need someone today if possible…&rdquo;
+                  &ldquo;Water heater leak reported. Preferred arrival window: today.&rdquo;
                 </p>
                 <div className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-[var(--brand-orange-500)] px-2 py-1 rounded-md">
-                  Booking job · 2–4 PM slot
+                  Auto-creating lead card
                 </div>
               </div>
 
               <div className="hidden sm:block absolute -right-8 -bottom-8 w-72 brand-card p-4 text-[var(--brand-ink)]">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[var(--brand-slate-muted)]">Invoice #2047</span>
+                  <span className="text-xs font-semibold text-[var(--brand-slate-muted)]">Invoice payment</span>
                   <span className="text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
-                    PAID
+                    COLLECTED
                   </span>
                 </div>
-                <p className="mt-2 text-2xl font-bold">$1,284.00</p>
+                <p className="mt-2 text-2xl font-bold">Status: Paid</p>
                 <div className="flex items-center gap-1 text-xs text-[var(--brand-slate-muted)] mt-1">
-                  <Clock3 className="h-3 w-3" /> Paid 18 minutes after send
+                  <Clock3 className="h-3 w-3" /> Customer paid through secure checkout
                 </div>
                 <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full w-full bg-gradient-to-r from-[var(--brand-orange-500)] to-[var(--brand-orange-600)]" />
@@ -121,28 +122,21 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="mt-16 pt-10 border-t border-white/10">
-          <p className="trust-mark text-center mb-6">
-            Trusted by independent shops and regional multi-branch operators
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-6 items-center opacity-80">
-            {[
-              'Rooter Ridge',
-              'BlueStream Plumbing',
-              'Ironworks Mechanical',
-              'Cascade & Co.',
-              'Cedar Plumbing',
-              'Harbor Drain',
-            ].map((brand) => (
-              <div key={brand} className="text-center">
-                <span className="font-black tracking-widest text-white/50 text-sm uppercase">
-                  {brand}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="trust-mark text-center mt-4 text-[11px] text-white/40 max-w-2xl mx-auto">
-            Names shown are illustrative placeholders for marketing, not endorsements.
+        <div className="md:hidden mt-10 grid gap-3">
+          {[
+            'AI answers every inbound call and captures intent.',
+            'Dispatch updates crews and customers in one timeline.',
+            'Invoices and payments are tracked end to end.',
+          ].map((line) => (
+            <div key={line} className="brand-card p-3.5 text-sm text-[var(--brand-ink)]">
+              {line}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-16 pt-10 border-t border-white/10 text-center">
+          <p className="trust-mark text-white/60">
+            Onboarding early access plumbing shops now. Join the waitlist to reserve your rollout window.
           </p>
         </div>
       </div>
@@ -187,9 +181,9 @@ function BrowserFrameMock() {
           <div className="col-span-9 p-6 bg-[var(--brand-cream)]">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-bold text-lg text-[var(--brand-ink)]">Good morning, Akshay</h3>
+                <h3 className="font-bold text-lg text-[var(--brand-ink)]">Today&apos;s operations</h3>
                 <p className="text-xs text-[var(--brand-slate-muted)]">
-                  3 live calls · 12 open jobs · $18,420 to collect
+                  Live calls, active jobs, and invoices in one shared timeline
                 </p>
               </div>
               <div className="hidden sm:flex gap-2">
@@ -223,9 +217,9 @@ function BrowserFrameMock() {
               </div>
               <ul className="divide-y divide-slate-100 text-sm">
                 {[
-                  ['Maria Delgado', 'Water heater leak', 'Booked', 'bg-emerald-50 text-emerald-700'],
-                  ['Jordan Park', 'Slab leak inspection', 'Quoted', 'bg-amber-50 text-amber-700'],
-                  ['Iris Chen', 'Kitchen clog', 'New', 'bg-sky-50 text-sky-700'],
+                  ['Emergency leak request', 'Water heater issue', 'Booked', 'bg-emerald-50 text-emerald-700'],
+                  ['Inspection request', 'Slab leak assessment', 'Quoted', 'bg-amber-50 text-amber-700'],
+                  ['Service request', 'Kitchen drain clog', 'New', 'bg-sky-50 text-sky-700'],
                 ].map(([name, issue, status, cls]) => (
                   <li key={name as string} className="px-4 py-2.5 flex items-center justify-between">
                     <div>

@@ -1,11 +1,4 @@
-/**
- * Sentry stub.
- *
- * The real @sentry/nextjs integration requires a wizard run and a
- * SENTRY_DSN, so this file gives us a stable API surface that no-ops
- * when the DSN is missing. Replace the internals with @sentry/nextjs
- * (init + captureException) once the account is provisioned.
- */
+import * as Sentry from '@sentry/nextjs';
 
 type Scope = {
   setTag: (key: string, value: string) => void;
@@ -19,11 +12,7 @@ interface SentryAPI {
   setTenantContext: (opts: { companyId?: string | null; userId?: string | null }) => void;
 }
 
-const enabled = Boolean(process.env.SENTRY_DSN);
-
-function noopScope(): Scope {
-  return { setTag: () => {}, setUser: () => {}, setContext: () => {} };
-}
+const enabled = Boolean(process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN);
 
 export const sentry: SentryAPI = {
   captureException(error, cb) {
@@ -31,15 +20,21 @@ export const sentry: SentryAPI = {
       console.error('[sentry-disabled]', error);
       return;
     }
-    cb?.(noopScope());
-    console.error('[sentry]', error);
+    Sentry.withScope((scope) => {
+      cb?.(scope as unknown as Scope);
+      Sentry.captureException(error);
+    });
   },
   captureMessage(message, cb) {
     if (!enabled) return;
-    cb?.(noopScope());
-    console.warn('[sentry]', message);
+    Sentry.withScope((scope) => {
+      cb?.(scope as unknown as Scope);
+      Sentry.captureMessage(message);
+    });
   },
-  setTenantContext() {
-    // When @sentry/nextjs is wired up, we'll push a scope with company/user tags here.
+  setTenantContext({ companyId, userId }) {
+    if (!enabled) return;
+    if (companyId) Sentry.setTag('company_id', companyId);
+    Sentry.setUser(userId ? { id: userId } : null);
   },
 };

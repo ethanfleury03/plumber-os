@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Check, Minus } from 'lucide-react';
 import { getSalesMailto } from '@/lib/marketing/cta';
+import { PlanCheckoutButton } from './PlanCheckoutButton';
+import { LeadModal } from './LeadModal';
 
 type Cadence = 'monthly' | 'annual';
 
@@ -193,12 +195,31 @@ export function Pricing() {
                   ))}
                 </ul>
 
-                <Link
-                  href={tier.ctaHref}
-                  className={`mt-8 w-full text-center ${tier.highlighted ? 'btn-primary' : 'btn-ghost-dark'}`}
-                >
-                  {tier.cta}
-                </Link>
+                {tier.name === 'Starter' || tier.name === 'Pro' ? (
+                  <PlanCheckoutButton
+                    plan={tier.name.toLowerCase() as 'starter' | 'pro'}
+                    billingCycle={cadence}
+                    className={`mt-8 w-full text-center ${tier.highlighted ? 'btn-primary' : 'btn-ghost-dark'}`}
+                  >
+                    {tier.cta}
+                  </PlanCheckoutButton>
+                ) : tier.name === 'Scale' ? (
+                  <LeadModal
+                    kind="contact"
+                    title="Talk to sales"
+                    description="Tell us about your team and we will tailor a Scale rollout."
+                    triggerLabel={tier.cta}
+                    triggerClassName={`mt-8 w-full text-center ${tier.highlighted ? 'btn-primary' : 'btn-ghost-dark'}`}
+                    fields={['name', 'email', 'company', 'phone', 'message']}
+                  />
+                ) : (
+                  <Link
+                    href={tier.ctaHref}
+                    className={`mt-8 w-full text-center ${tier.highlighted ? 'btn-primary' : 'btn-ghost-dark'}`}
+                  >
+                    {tier.cta}
+                  </Link>
+                )}
               </div>
             );
           })}

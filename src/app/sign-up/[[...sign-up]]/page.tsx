@@ -3,7 +3,7 @@ import { SignUpClient } from '../sign-up-client';
 
 function SignUpFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-400">Loading…</div>
+    <div className="min-h-screen flex items-center justify-center bg-[#0b1422] text-white/70">Loading…</div>
   );
 }
 

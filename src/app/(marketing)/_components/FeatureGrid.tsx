@@ -96,7 +96,7 @@ const TILES = [
 
 export function FeatureGrid() {
   return (
-    <section id="features" className="py-24 bg-[var(--brand-cream-2)] relative">
+    <section id="features-grid" className="py-24 bg-[var(--brand-cream-2)] relative">
       <div className="grid-dots absolute inset-0 opacity-60 pointer-events-none" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mb-14">

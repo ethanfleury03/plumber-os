@@ -15,10 +15,10 @@ function ReceptionistMockup() {
           <p className="text-xs font-semibold text-[var(--brand-slate-muted)] mb-1">Transcript</p>
           <div className="space-y-2 text-sm">
             <div className="bg-slate-50 rounded-md p-2">
-              <b className="text-[var(--brand-orange-600)]">AI:</b> Hi, this is Ava at Cedar Plumbing. How can I help?
+              <b className="text-[var(--brand-orange-600)]">AI:</b> Hi, this is your service desk. How can I help?
             </div>
             <div className="bg-slate-50 rounded-md p-2">
-              <b>Maria:</b> My water heater is leaking in the basement. Any chance today?
+              <b>Caller:</b> We have a water heater leak in the basement. Can someone come today?
             </div>
             <div className="bg-[var(--brand-orange-500)]/10 border border-[var(--brand-orange-500)]/30 rounded-md p-2">
               <b className="text-[var(--brand-orange-600)]">AI:</b> I can get a tech out between 2–4 PM. Address?
@@ -47,7 +47,7 @@ function DispatchMockup() {
           </div>
           <div className="bg-white border border-slate-200 rounded-lg p-3 mb-2">
             <p className="text-xs text-[var(--brand-slate-muted)]">Next stop</p>
-            <p className="text-sm font-bold">Maria Delgado · 14 Elm St</p>
+            <p className="text-sm font-bold">Emergency leak · 14 Elm St</p>
             <p className="text-xs text-[var(--brand-slate-muted)]">Water heater — emergency</p>
             <div className="mt-2 flex gap-1.5">
               <span className="text-[10px] bg-red-50 text-red-700 font-semibold px-1.5 py-0.5 rounded">
@@ -58,9 +58,9 @@ function DispatchMockup() {
               </span>
             </div>
           </div>
-          <button className="w-full bg-[var(--brand-orange-500)] text-white text-sm font-semibold py-2.5 rounded-lg">
-            I&apos;ve arrived
-          </button>
+          <div className="w-full bg-[var(--brand-orange-500)] text-white text-center text-sm font-semibold py-2.5 rounded-lg">
+            Arrival status synced
+          </div>
         </div>
       </PhoneFrame>
     </div>
@@ -70,12 +70,12 @@ function DispatchMockup() {
 function PaymentsMockup() {
   return (
     <div className="hidden md:block absolute -left-8 -bottom-10 w-80">
-      <BrowserFrame url="app.plumber.os/invoices/2047">
+      <BrowserFrame url="app.plumber.os/invoices">
         <div className="p-5 bg-white text-[var(--brand-ink)]">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-[var(--brand-slate-muted)]">Invoice #2047</p>
-              <p className="font-bold text-xl">$1,284.00</p>
+              <p className="text-xs text-[var(--brand-slate-muted)]">Invoice payment</p>
+              <p className="font-bold text-xl">Collected online</p>
             </div>
             <span className="text-[11px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
               PAID
@@ -106,18 +106,18 @@ function PaymentsMockup() {
 function PortalMockup() {
   return (
     <div className="hidden md:block absolute -right-6 -top-8 w-72">
-      <BrowserFrame url="portal.plumber.os/maria">
+      <BrowserFrame url="portal.plumber.os/customer">
         <div className="p-5 bg-white text-[var(--brand-ink)]">
-          <p className="text-xs text-[var(--brand-slate-muted)]">Hello, Maria 👋</p>
+          <p className="text-xs text-[var(--brand-slate-muted)]">Customer portal</p>
           <p className="font-bold mt-1">Your upcoming visit</p>
           <div className="mt-3 p-3 rounded-lg bg-[var(--brand-cream)] border border-slate-200">
-            <p className="text-sm font-bold">Wed, Apr 17 · 2–4 PM</p>
-            <p className="text-xs text-[var(--brand-slate-muted)]">Tech: Dan G. · Ford Transit 212</p>
+            <p className="text-sm font-bold">Thursday · 2–4 PM window</p>
+            <p className="text-xs text-[var(--brand-slate-muted)]">Tech: Assigned crew member</p>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-semibold text-center">
-            <span className="bg-slate-100 py-1.5 rounded">Reschedule</span>
-            <span className="bg-slate-100 py-1.5 rounded">Cancel</span>
-            <span className="bg-[var(--brand-orange-500)] text-white py-1.5 rounded">Message</span>
+            <div className="bg-slate-100 py-1.5 rounded">Reschedule</div>
+            <div className="bg-slate-100 py-1.5 rounded">Cancel</div>
+            <div className="bg-[var(--brand-orange-500)] text-white py-1.5 rounded">Message</div>
           </div>
         </div>
       </BrowserFrame>
@@ -202,6 +202,23 @@ export function FeatureSpotlights() {
         reverse
         mockup={<PortalMockup />}
       />
+
+      <section className="md:hidden px-4 pb-10 bg-white">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid gap-3">
+            {[
+              'AI receptionist: captures caller intent and booking windows.',
+              'Dispatch + mobile: crew status sync with customer ETAs.',
+              'Estimates + payments: send, sign, invoice, and collect online.',
+              'Customer portal: reschedule, message, and view service history.',
+            ].map((line) => (
+              <div key={line} className="brand-card p-3.5 text-sm text-[var(--brand-ink)]">
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </>
   );
 }

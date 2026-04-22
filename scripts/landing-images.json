@@ -44,6 +44,62 @@
       "width": 1600,
       "height": 900,
       "prompt": "Three plumbers of varied backgrounds — one white, one Black, one Hispanic — laugh together in front of a navy blue branded service van. All wear matching navy uniforms with safety-orange accents. Toolboxes and a ladder are neatly placed on the ground near their feet. Crisp morning light, shot slightly from below to make them feel heroic but approachable. Wide 16:9 framing with breathing room at the top."
+    },
+    {
+      "name": "plumbing",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A plumber in clean navy blue workwear kneels beneath a modern kitchen sink, tightening a copper fitting with a wrench. Safety-orange logo patch on sleeve. Warm, bright kitchen with marble countertop visible above. Shallow depth of field on the hands and fitting, soft natural window light. 16:10 editorial framing."
+    },
+    {
+      "name": "electrical",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A licensed electrician in navy uniform installs a modern smart electrical panel in a tidy residential garage. The open panel shows neat rows of breakers; the technician is labeling a circuit. Safety-orange tool bag and meter on a ladder nearby. Crisp daylight, shallow depth of field, 16:10 framing."
+    },
+    {
+      "name": "hvac",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "An HVAC technician in navy coveralls services a rooftop condenser unit on a suburban home. He is reading a manifold gauge set with safety-orange hoses. Bright clear morning sky, soft shadows, professional and approachable mood. 16:10 editorial composition."
+    },
+    {
+      "name": "roofing",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A roofer in navy workwear and a safety-orange high-visibility vest inspects asphalt shingles on a pitched residential roof. He holds a clipboard and a phone capturing photos of a damaged section. Warm afternoon light, neighborhood softly blurred behind. 16:10 framing."
+    },
+    {
+      "name": "garage-door",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A technician in navy uniform aligns a modern residential garage door spring and track. The two-car garage door is half open, warm safety-orange light spills from inside. Toolbox with safety-orange accents on the driveway. 16:10 editorial composition, shallow depth of field on the hands and spring."
+    },
+    {
+      "name": "pest-control",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A pest-control technician in clean navy uniform with a safety-orange backpack sprayer inspects the base of a tidy suburban home exterior. He kneels near a foundation vent with a flashlight, professional and careful. Warm morning light, green shrubs softly out of focus. 16:10 framing."
+    },
+    {
+      "name": "landscaping",
+      "output_dir": "public/industries",
+      "aspect_ratio": "16:10",
+      "width": 1200,
+      "height": 750,
+      "prompt": "A landscaper in navy uniform edges a crisp suburban lawn with a string trimmer, safety-orange accents on the trimmer guard. Freshly striped grass and a tidy flowerbed border. Warm golden-hour light, cinematic shallow depth of field, 16:10 editorial framing."
     }
   ]
 }

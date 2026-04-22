@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, uuid, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 
 export const payments = pgTable(
@@ -62,5 +62,31 @@ export const disputes = pgTable(
   },
   (t) => ({
     companyIdx: index('idx_disputes_company_id').on(t.companyId),
+  }),
+);
+
+export const billingSubscriptions = pgTable(
+  'billing_subscriptions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    clerkUserId: text('clerk_user_id'),
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    priceId: text('price_id'),
+    plan: text('plan').notNull(),
+    status: text('status').notNull().default('incomplete'),
+    billingCycle: text('billing_cycle').notNull().default('monthly'),
+    trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    metadataJson: text('metadata_json'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    stripeSubUnique: uniqueIndex('idx_billing_subscriptions_stripe_sub').on(t.stripeSubscriptionId),
+    companyIdx: index('idx_billing_subscriptions_company').on(t.companyId),
+    statusIdx: index('idx_billing_subscriptions_status').on(t.status),
   }),
 );

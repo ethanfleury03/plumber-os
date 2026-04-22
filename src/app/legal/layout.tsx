@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { getSiteUrl } from '@/lib/marketing/site';
 
 export const metadata: Metadata = {
   title: 'Legal — PlumberOS',
+  description: 'Legal policies for use of PlumberOS.',
+  metadataBase: new URL(getSiteUrl()),
 };
 
 export default function LegalLayout({ children }: { children: React.ReactNode }) {

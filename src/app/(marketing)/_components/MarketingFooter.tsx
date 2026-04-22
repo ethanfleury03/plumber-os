@@ -2,22 +2,21 @@ import Link from 'next/link';
 import { Wrench, Twitter, Linkedin, Github } from 'lucide-react';
 
 const PRODUCT_LINKS = [
-  { label: 'AI Receptionist', href: '/#spotlight-receptionist' },
-  { label: 'Dispatch & Mobile', href: '/#spotlight-dispatch' },
-  { label: 'Estimates & Invoices', href: '/#spotlight-payments' },
-  { label: 'Customer Portal', href: '/#spotlight-portal' },
-  { label: 'Reports', href: '/#features' },
-  { label: 'Pricing', href: '/#pricing' },
+  { label: 'AI Receptionist', href: '/features#spotlight-receptionist' },
+  { label: 'Dispatch & Mobile', href: '/features#spotlight-dispatch' },
+  { label: 'Estimates & Invoices', href: '/features#spotlight-payments' },
+  { label: 'Customer Portal', href: '/features#spotlight-portal' },
+  { label: 'Reports', href: '/features#features-grid' },
+  { label: 'Pricing', href: '/pricing' },
 ];
-
-function salesMailto(): string {
-  const email = process.env.NEXT_PUBLIC_SALES_EMAIL?.trim() || 'sales@plumber.os';
-  return `mailto:${email}`;
-}
 
 function pickUrl(env: string | undefined, fallback: string): string {
   const v = env?.trim();
   return v || fallback;
+}
+
+function isExternalHref(href: string): boolean {
+  return href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:');
 }
 
 export function MarketingFooter() {
@@ -32,15 +31,15 @@ export function MarketingFooter() {
 
   const companyLinks: { label: string; href: string }[] = [
     { label: 'About', href: aboutHref },
-    { label: 'Customers', href: '/#customers' },
     ...(blogHref ? [{ label: 'Blog', href: blogHref }] : []),
     ...(careersHref ? [{ label: 'Careers', href: careersHref }] : []),
-    { label: 'Contact sales', href: salesMailto() },
+    { label: 'Contact sales', href: '/contact' },
   ];
 
   const legalLinks = [
     { label: 'Terms of service', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_TERMS_URL, '/legal/terms') },
     { label: 'Privacy policy', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_PRIVACY_URL, '/legal/privacy') },
+    { label: 'Cookie policy', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_COOKIES_URL, '/legal/cookies') },
     { label: 'DPA', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_DPA_URL, '/legal/dpa') },
     { label: 'Security', href: pickUrl(process.env.NEXT_PUBLIC_LEGAL_SECURITY_URL, '/legal/security') },
   ];
@@ -104,9 +103,9 @@ export function MarketingFooter() {
             <ul className="space-y-2 text-sm">
               {PRODUCT_LINKS.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="hover:text-white transition-colors">
+                  <Link href={l.href} className="hover:text-white transition-colors">
                     {l.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -117,9 +116,19 @@ export function MarketingFooter() {
             <ul className="space-y-2 text-sm">
               {companyLinks.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="hover:text-white transition-colors">
-                    {l.label}
-                  </a>
+                  {isExternalHref(l.href) ? (
+                    <a
+                      href={l.href}
+                      className="hover:text-white transition-colors"
+                      {...(l.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                    >
+                      {l.label}
+                    </a>
+                  ) : (
+                    <Link href={l.href} className="hover:text-white transition-colors">
+                      {l.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -130,9 +139,19 @@ export function MarketingFooter() {
             <ul className="space-y-2 text-sm">
               {legalLinks.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="hover:text-white transition-colors">
-                    {l.label}
-                  </a>
+                  {isExternalHref(l.href) ? (
+                    <a
+                      href={l.href}
+                      className="hover:text-white transition-colors"
+                      {...(l.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                    >
+                      {l.label}
+                    </a>
+                  ) : (
+                    <Link href={l.href} className="hover:text-white transition-colors">
+                      {l.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

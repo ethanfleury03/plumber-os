@@ -28,8 +28,8 @@ export function ValueStrip() {
             Built for the three moments that actually move revenue.
           </h2>
           <p className="mt-4 text-[var(--brand-slate)] text-lg">
-            We studied the workday of thirty plumbing operators. Three handoffs were hemorrhaging money. We
-            rebuilt every one of them.
+            Revenue leaks happen at handoff points: call to booking, booking to dispatch, and job closeout to
+            payment. PlumberOS is built around keeping each handoff clean.
           </p>
         </div>
 

@@ -1,45 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-
-const ITEMS = [
-  {
-    q: 'How long does setup take?',
-    a: 'Most shops are live in under 20 minutes. You sign up with Clerk, connect Stripe, import customers from CSV (optional), and forward your main business line to the AI receptionist number. We stay on-call during your first week.',
-  },
-  {
-    q: 'Do I have to replace my existing phone number?',
-    a: 'No. You can forward your existing Twilio, RingCentral, or cell number to PlumberOS. Customers keep calling the number they already know; the AI just answers when your front desk can\'t.',
-  },
-  {
-    q: 'What payment processors do you support?',
-    a: 'Stripe Connect is native — destination charges, deposits, refunds, disputes, ACH, Apple Pay, and 2-day payouts. We do not mark up payment processing; Stripe\'s published rates apply.',
-  },
-  {
-    q: 'Is my customer data really isolated between tenants?',
-    a: 'Yes. Every query is scoped by `company_id` at the application layer, and Postgres Row-Level Security enforces the same boundary at the database layer. An internal guard test fails CI if anyone writes an unscoped tenant query.',
-  },
-  {
-    q: 'Can I bring my own voice / brand for the receptionist?',
-    a: 'On Pro and Scale, yes. We clone your greeting, tune the voice, and swap in your brand name + hours. Demo mode lets you hear the AI before you forward a single call.',
-  },
-  {
-    q: 'What happens if the AI receptionist doesn\'t understand the caller?',
-    a: 'It escalates. Based on rules you configure, the call transfers to your on-call rotation, drops a voicemail into your lead inbox, or texts the customer a booking link. You always see the full transcript.',
-  },
-  {
-    q: 'Do you handle SMS opt-out for me?',
-    a: 'Yes. The inbound SMS webhook processes STOP / START / UNSUBSCRIBE keywords automatically and records the consent state per customer. All outbound SMS respects that state.',
-  },
-  {
-    q: 'What happens to my data if I cancel?',
-    a: 'You can export a full JSON dump of every customer, job, invoice, estimate, payment, and attachment at any time. GDPR/CCPA privacy endpoints are built in for individual customer requests too.',
-  },
-];
+import type { KeyboardEvent } from 'react';
+import { FAQ_ITEMS } from './faq-data';
 
 export function FAQ() {
-  const [open, setOpen] = useState<number | null>(0);
+  const [open, setOpen] = useState<Set<number>>(new Set([0]));
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function toggle(idx: number) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, idx: number) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const max = FAQ_ITEMS.length - 1;
+    const next = event.key === 'ArrowDown' ? (idx >= max ? 0 : idx + 1) : (idx <= 0 ? max : idx - 1);
+    buttonRefs.current[next]?.focus();
+  }
+
   return (
     <section id="faq" className="py-24 bg-[var(--brand-cream)]">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -51,8 +37,10 @@ export function FAQ() {
         </div>
 
         <div className="space-y-3">
-          {ITEMS.map((item, i) => {
-            const isOpen = open === i;
+          {FAQ_ITEMS.map((item, i) => {
+            const isOpen = open.has(i);
+            const panelId = `faq-panel-${i}`;
+            const buttonId = `faq-button-${i}`;
             return (
               <div
                 key={item.q}
@@ -61,10 +49,16 @@ export function FAQ() {
                 }`}
               >
                 <button
+                  ref={(el) => {
+                    buttonRefs.current[i] = el;
+                  }}
                   type="button"
-                  onClick={() => setOpen(isOpen ? null : i)}
+                  onClick={() => toggle(i)}
+                  onKeyDown={(event) => onKeyDown(event, i)}
                   className="w-full flex items-center justify-between text-left px-6 py-5"
                   aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  id={buttonId}
                 >
                   <span className="font-semibold text-[var(--brand-ink)] text-base pr-6">{item.q}</span>
                   <ChevronDown
@@ -74,7 +68,12 @@ export function FAQ() {
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-6 pb-6 text-[var(--brand-slate)] leading-relaxed border-t border-slate-100 pt-4">
+                  <div
+                    id={panelId}
+                    role="region"
+                    aria-labelledby={buttonId}
+                    className="px-6 pb-6 text-[var(--brand-slate)] leading-relaxed border-t border-slate-100 pt-4"
+                  >
                     {item.a}
                   </div>
                 )}

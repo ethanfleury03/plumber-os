@@ -12,6 +12,11 @@ import {
   upsertDispute,
 } from '@/lib/payments/payment-service';
 import { computeConnectStatus } from '@/lib/payments/connect';
+import {
+  markBillingSubscriptionPastDue,
+  upsertBillingSubscriptionFromCheckout,
+  upsertBillingSubscriptionFromSubscription,
+} from '@/lib/marketing/subscriptions';
 
 export async function POST(request: Request) {
   const stripe = getStripe();
@@ -49,7 +54,9 @@ export async function POST(request: Request) {
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
-        await fulfillCheckoutSession(event.data.object as Stripe.Checkout.Session);
+        const session = event.data.object as Stripe.Checkout.Session;
+        await fulfillCheckoutSession(session);
+        await upsertBillingSubscriptionFromCheckout(session);
         break;
       }
       case 'checkout.session.expired': {
@@ -69,6 +76,16 @@ export async function POST(request: Request) {
       case 'charge.dispute.updated':
       case 'charge.dispute.closed': {
         await upsertDispute(event.data.object as Stripe.Dispute);
+        break;
+      }
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        await upsertBillingSubscriptionFromSubscription(event.data.object as Stripe.Subscription);
+        break;
+      }
+      case 'invoice.payment_failed': {
+        await markBillingSubscriptionPastDue(event.data.object as Stripe.Invoice);
         break;
       }
       case 'account.updated': {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Search, Bell, Plus, TrendingUp } from 'lucide-react';
 
 interface Lead {
@@ -41,6 +42,8 @@ const leadStatusLabels: Record<string, string> = {
 const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 
 export default function Dashboard() {
+  const searchParams = useSearchParams();
+  const showWelcome = searchParams.get('welcome') === '1';
   const [leads, setLeads] = useState<Lead[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -150,6 +153,11 @@ export default function Dashboard() {
         </header>
 
         <div className="p-8 overflow-auto">
+          {showWelcome ? (
+            <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-3 rounded-lg mb-6 text-sm">
+              Subscription activated. Your trial is live and billing is set up.
+            </div>
+          ) : null}
           {error && (
             <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg mb-6 text-sm">
               {error}

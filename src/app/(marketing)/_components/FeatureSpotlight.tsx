@@ -65,6 +65,7 @@ export function FeatureSpotlight({
                 alt={image.alt}
                 width={image.width}
                 height={image.height}
+                sizes="(min-width: 1024px) 56vw, 100vw"
                 className="w-full h-auto rounded-2xl object-cover shadow-[0_40px_80px_-30px_rgba(11,20,34,0.45)]"
               />
               {mockup}

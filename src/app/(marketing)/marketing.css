@@ -263,8 +263,10 @@
   padding: 0 0.1em;
 }
 
-.marketing-root .fade-up {
-  animation: fadeUp 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+@media (prefers-reduced-motion: no-preference) {
+  .marketing-root .fade-up {
+    animation: fadeUp 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 }
 
 @keyframes fadeUp {
@@ -306,28 +308,24 @@
   justify-content: center;
 }
 
-.marketing-root .stat-bar {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
+@media (prefers-reduced-motion: reduce) {
+  .marketing-root .brand-card,
+  .marketing-root .feature-tile,
+  .marketing-root .btn-primary,
+  .marketing-root .btn-ghost,
+  .marketing-root .btn-ghost-dark {
+    transition: none !important;
+  }
+
+  .marketing-root .brand-card:hover,
+  .marketing-root .feature-tile:hover,
+  .marketing-root .btn-primary:hover,
+  .marketing-root .btn-ghost-dark:hover {
+    transform: none !important;
+  }
+
+  .marketing-root .animate-pulse {
+    animation: none !important;
+  }
 }
 
-.marketing-root .stat-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 1rem 1.25rem;
-  border-left: 2px solid rgba(242, 106, 31, 0.5);
-}
-
-.marketing-root .stat-value {
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--brand-ink);
-}
-
-.marketing-root .stat-label {
-  font-size: 0.82rem;
-  color: var(--brand-slate-muted);
-}

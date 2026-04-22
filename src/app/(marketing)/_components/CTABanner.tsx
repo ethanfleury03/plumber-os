@@ -1,12 +1,9 @@
 import Link from 'next/link';
 import { Show } from '@clerk/nextjs';
 import { ArrowRight, PhoneCall } from 'lucide-react';
-import { getDemoOrSalesHref, getSalesMailto } from '@/lib/marketing/cta';
+import { LeadModal } from './LeadModal';
 
 export function CTABanner() {
-  const bookDemoHref = getDemoOrSalesHref();
-  const bookDemoExternal = bookDemoHref.startsWith('http');
-
   return (
     <section className="relative py-24 overflow-hidden">
       <div className="absolute inset-0 brand-hero-bg" />
@@ -37,22 +34,28 @@ export function CTABanner() {
               Start free trial
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a
-              href={bookDemoHref}
-              className="btn-ghost text-base"
-              {...(bookDemoExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-            >
-              Book a demo
-            </a>
+            <LeadModal
+              kind="demo"
+              title="Book a demo"
+              description="Tell us about your shop and we'll follow up with a tailored walkthrough."
+              triggerLabel="Book a demo"
+              triggerClassName="btn-ghost text-base"
+              fields={['name', 'email', 'company', 'phone', 'message']}
+            />
           </Show>
           <Show when="signed-in">
             <Link href="/app" className="btn-primary text-base">
               Open your dashboard
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a href={getSalesMailto()} className="btn-ghost text-base">
-              Talk to sales
-            </a>
+            <LeadModal
+              kind="contact"
+              title="Talk to sales"
+              description="We can help with rollout planning, migration, and team onboarding."
+              triggerLabel="Talk to sales"
+              triggerClassName="btn-ghost text-base"
+              fields={['name', 'email', 'company', 'phone', 'message']}
+            />
           </Show>
         </div>
         <p className="mt-4 text-xs text-white/50">
