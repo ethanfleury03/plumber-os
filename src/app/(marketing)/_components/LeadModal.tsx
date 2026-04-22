@@ -46,14 +46,14 @@ export function LeadModal({
 
       {open ? (
         <div
-          className="fixed inset-0 z-[90] bg-black/55 p-4 flex items-center justify-center"
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(8,17,29,0.58)] p-4 backdrop-blur-sm"
           onClick={() => setOpen(false)}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl"
+            className="marketing-dialog p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-3">
@@ -66,7 +66,7 @@ export function LeadModal({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-md p-1 text-slate-500 hover:text-slate-800"
+                className="rounded-xl p-2 text-[var(--brand-slate-muted)] transition-colors hover:bg-[var(--brand-cream-2)] hover:text-[var(--brand-ink)]"
                 aria-label="Close form"
               >
                 <X className="h-5 w-5" />

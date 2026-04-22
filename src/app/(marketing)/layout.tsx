@@ -1,8 +1,25 @@
 import type { Metadata } from 'next';
+import { IBM_Plex_Mono, Plus_Jakarta_Sans, Sora } from 'next/font/google';
 import './marketing.css';
 import { MarketingNav } from './_components/MarketingNav';
 import { MarketingFooter } from './_components/MarketingFooter';
 import { absoluteUrl, getSiteUrl } from '@/lib/marketing/site';
+
+const marketingDisplay = Sora({
+  variable: '--font-marketing-display',
+  subsets: ['latin'],
+});
+
+const marketingSans = Plus_Jakarta_Sans({
+  variable: '--font-marketing-sans',
+  subsets: ['latin'],
+});
+
+const marketingMono = IBM_Plex_Mono({
+  variable: '--font-marketing-mono',
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+});
 
 export const metadata: Metadata = {
   title: 'PlumberOS — The operating system for modern plumbing companies',
@@ -57,7 +74,9 @@ export default function MarketingLayout({
   };
 
   return (
-    <div className="marketing-root min-h-screen flex flex-col">
+    <div
+      className={`marketing-root ${marketingDisplay.variable} ${marketingSans.variable} ${marketingMono.variable} min-h-screen flex flex-col`}
+    >
       <script
         type="application/ld+json"
         suppressHydrationWarning

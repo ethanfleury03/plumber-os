@@ -142,12 +142,12 @@ export function LeadForm({
       />
 
       {enabledFields.includes('name') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Name</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Name</span>
           <input
             required
             type="text"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="marketing-field"
             value={form.name}
             onChange={(e) => update('name', e.target.value)}
           />
@@ -155,12 +155,12 @@ export function LeadForm({
       ) : null}
 
       {enabledFields.includes('email') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Email</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Email</span>
           <input
             required
             type="email"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="marketing-field"
             value={form.email}
             onChange={(e) => update('email', e.target.value)}
           />
@@ -168,11 +168,11 @@ export function LeadForm({
       ) : null}
 
       {enabledFields.includes('company') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Company</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Company</span>
           <input
             type="text"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="marketing-field"
             value={form.company}
             onChange={(e) => update('company', e.target.value)}
           />
@@ -180,11 +180,11 @@ export function LeadForm({
       ) : null}
 
       {enabledFields.includes('phone') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Phone</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Phone</span>
           <input
             type="tel"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="marketing-field"
             value={form.phone}
             onChange={(e) => update('phone', e.target.value)}
           />
@@ -192,11 +192,11 @@ export function LeadForm({
       ) : null}
 
       {enabledFields.includes('trade') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Trade</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Trade</span>
           <input
             type="text"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="marketing-field"
             value={form.trade}
             onChange={(e) => update('trade', e.target.value)}
           />
@@ -204,10 +204,10 @@ export function LeadForm({
       ) : null}
 
       {enabledFields.includes('message') ? (
-        <label className="block">
-          <span className="text-sm font-medium text-[var(--brand-ink)]">Message</span>
+        <label className="marketing-label">
+          <span className="marketing-label-text">Message</span>
           <textarea
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-24"
+            className="marketing-textarea"
             value={form.message}
             onChange={(e) => update('message', e.target.value)}
           />

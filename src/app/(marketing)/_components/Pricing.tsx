@@ -96,7 +96,7 @@ export function Pricing() {
   const [cadence, setCadence] = useState<Cadence>('monthly');
 
   return (
-    <section id="pricing" className="py-24 bg-white">
+    <section id="pricing" className="py-24 bg-[var(--brand-cream)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-10">
           <span className="eyebrow">Pricing</span>
@@ -108,12 +108,14 @@ export function Pricing() {
             don&apos;t mark up your payments.
           </p>
 
-          <div className="mt-8 inline-flex items-center p-1 bg-[var(--brand-cream-2)] rounded-full">
+          <div className="mt-8 inline-flex items-center rounded-full border border-slate-200 bg-[var(--brand-cream-2)] p-1 shadow-[var(--brand-shadow-sm)]">
             <button
               type="button"
               onClick={() => setCadence('monthly')}
               className={`px-5 py-2 text-sm font-semibold rounded-full transition-all ${
-                cadence === 'monthly' ? 'bg-white shadow text-[var(--brand-ink)]' : 'text-[var(--brand-slate)]'
+                cadence === 'monthly'
+                  ? 'bg-white shadow-[var(--brand-shadow-sm)] text-[var(--brand-ink)]'
+                  : 'text-[var(--brand-slate)]'
               }`}
             >
               Monthly
@@ -122,11 +124,13 @@ export function Pricing() {
               type="button"
               onClick={() => setCadence('annual')}
               className={`px-5 py-2 text-sm font-semibold rounded-full transition-all flex items-center gap-2 ${
-                cadence === 'annual' ? 'bg-white shadow text-[var(--brand-ink)]' : 'text-[var(--brand-slate)]'
+                cadence === 'annual'
+                  ? 'bg-white shadow-[var(--brand-shadow-sm)] text-[var(--brand-ink)]'
+                  : 'text-[var(--brand-slate)]'
               }`}
             >
               Annual
-              <span className="text-[10px] font-bold bg-[var(--brand-orange-500)] text-white px-1.5 py-0.5 rounded">
+              <span className="rounded bg-[var(--brand-blue-500)] px-1.5 py-0.5 text-[10px] font-bold text-white">
                 2 mo. free
               </span>
             </button>
@@ -153,12 +157,12 @@ export function Pricing() {
                 key={tier.name}
                 className={`relative rounded-2xl p-7 flex flex-col ${
                   tier.highlighted
-                    ? 'bg-[var(--brand-navy-900)] text-white border border-[var(--brand-orange-500)]/30 shadow-[0_40px_80px_-30px_rgba(14,26,43,0.7)]'
+                    ? 'bg-[linear-gradient(180deg,var(--brand-navy-800),var(--brand-navy-900))] text-white border border-white/8 shadow-[var(--brand-shadow-lg)] ring-1 ring-[var(--brand-blue-500)]/20'
                     : 'bg-white border border-slate-200'
                 }`}
               >
                 {tier.note && (
-                  <span className="absolute -top-3 left-6 text-[11px] font-bold bg-[var(--brand-orange-500)] text-white px-3 py-1 rounded-full shadow-md">
+                  <span className="absolute -top-3 left-6 rounded-full bg-[var(--brand-blue-500)] px-3 py-1 text-[11px] font-bold text-white shadow-md">
                     {tier.note}
                   </span>
                 )}
@@ -185,11 +189,11 @@ export function Pricing() {
                       key={f}
                       className={`flex items-start gap-2.5 text-sm ${tier.highlighted ? 'text-white/85' : 'text-[var(--brand-ink)]'}`}
                     >
-                      <Check
-                        className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                          tier.highlighted ? 'text-[var(--brand-orange-500)]' : 'text-[var(--brand-orange-600)]'
+                        <Check
+                          className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                          tier.highlighted ? 'text-[#a9c4ff]' : 'text-[var(--brand-orange-600)]'
                         }`}
-                      />
+                        />
                       <span>{f}</span>
                     </li>
                   ))}
@@ -225,7 +229,7 @@ export function Pricing() {
           })}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[var(--brand-shadow-sm)]">
           <div className="px-6 py-4 border-b border-slate-100">
             <h3 className="font-bold text-[var(--brand-ink)]">Feature comparison</h3>
             <p className="text-xs text-[var(--brand-slate-muted)]">

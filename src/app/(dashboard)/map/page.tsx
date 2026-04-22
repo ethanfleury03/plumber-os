@@ -116,11 +116,14 @@ function MapBounds({ leads }: { leads: MapLead[] }) {
 const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
   try {
     const res = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
+    if (!res.ok) {
+      return null;
+    }
     const data = await res.json();
     if (data.lat && data.lng) {
       return { lat: data.lat, lng: data.lng };
     }
-  } catch (e) {
+  } catch {
     console.error('Geocode failed for:', address);
   }
   return null;
@@ -163,7 +166,9 @@ export default function MapPage() {
         const data = await res.json();
         
         if (data.leads) {
-          // Geocode each lead that doesn't have coordinates
+          const addressCache = new Map<string, { lat: number; lng: number } | null>();
+
+          // Geocode each unique address once, then fan the result back out.
           const geocodedLeads = await Promise.all(
             data.leads.map(async (lead: ApiLead) => {
               let lat = 40.7128; // Default to NYC
@@ -171,7 +176,11 @@ export default function MapPage() {
               
               // Try geocoding first
               if (lead.location) {
-                const coords = await geocodeAddress(lead.location);
+                let coords = addressCache.get(lead.location);
+                if (coords === undefined) {
+                  coords = await geocodeAddress(lead.location);
+                  addressCache.set(lead.location, coords);
+                }
                 if (coords) {
                   lat = coords.lat;
                   lng = coords.lng;

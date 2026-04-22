@@ -33,7 +33,7 @@ const STEPS = [
 
 export function Workflow() {
   return (
-    <section id="workflow" className="py-24 bg-white">
+    <section id="workflow" className="py-24 bg-[var(--brand-cream)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mb-14">
           <span className="eyebrow">How it works</span>

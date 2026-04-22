@@ -3,7 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Search, Bell, Plus, TrendingUp } from 'lucide-react';
+import { Briefcase, ClipboardList, DollarSign, Headphones, TrendingUp, Users } from 'lucide-react';
+import {
+  ActionCard,
+  AppPageHeader,
+  ConsolePanel,
+  DataTable,
+  KpiStrip,
+  SearchField,
+  StatCard,
+  StatusBadge,
+  opsButtonClass,
+} from '@/components/ops/ui';
+import { formatCurrency, formatDateLabel, isSameLocalDay } from '@/lib/ops';
 
 interface Lead {
   id: string;
@@ -18,6 +30,9 @@ interface Lead {
 interface Job {
   id: string;
   status: string;
+  type?: string;
+  scheduled_date?: string | null;
+  scheduled_at?: string | null;
 }
 
 interface Invoice {
@@ -25,21 +40,16 @@ interface Invoice {
   status: string;
   total?: number | null;
   amount?: number | null;
+  due_date?: string | null;
 }
 
-
-
-const leadStatusLabels: Record<string, string> = {
-  new: 'New',
-  qualified: 'Qualified',
-  quoted: 'Quoted',
-  booked: 'Booked',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-  lost: 'Lost',
+const leadStatusTone: Record<string, 'brand' | 'success' | 'warning' | 'neutral'> = {
+  new: 'brand',
+  qualified: 'success',
+  booked: 'success',
+  quoted: 'warning',
+  lost: 'neutral',
 };
-
-const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 
 export default function Dashboard() {
   const searchParams = useSearchParams();
@@ -49,6 +59,7 @@ export default function Dashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -84,178 +95,232 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
+  const filteredLeads = useMemo(() => {
+    const query = search.toLowerCase().trim();
+    if (!query) return leads;
+    return leads.filter((lead) =>
+      [lead.customer_name, lead.customer_phone, lead.issue, lead.location]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }, [leads, search]);
+
   const stats = useMemo(() => {
     const activeJobs = jobs.filter((job) => ['scheduled', 'in_progress'].includes(job.status)).length;
     const inProgressJobs = jobs.filter((job) => job.status === 'in_progress').length;
     const pendingInvoices = invoices.filter((invoice) => invoice.status === 'pending');
     const pendingAmount = pendingInvoices.reduce(
       (sum, invoice) => sum + Number(invoice.total ?? invoice.amount ?? 0),
-      0
+      0,
     );
     const paidInvoices = invoices.filter((invoice) => invoice.status === 'paid');
     const revenue = paidInvoices.reduce(
       (sum, invoice) => sum + Number(invoice.total ?? invoice.amount ?? 0),
-      0
+      0,
     );
+    const jobsToday = jobs.filter((job) => {
+      if (job.scheduled_at) return isSameLocalDay(job.scheduled_at);
+      return job.scheduled_date === new Date().toISOString().slice(0, 10);
+    }).length;
+    const newLeads = leads.filter((lead) => lead.status === 'new').length;
 
-    return [
-      {
-        label: 'Total Leads',
-        value: String(leads.length),
-        change: `${leads.filter((lead) => lead.status === 'new').length} new`,
-        up: true,
-      },
-      {
-        label: 'Active Jobs',
-        value: String(activeJobs),
-        change: `${inProgressJobs} in progress`,
-        up: true,
-      },
-      {
-        label: 'Pending Invoices',
-        value: String(pendingInvoices.length),
-        change: formatCurrency(pendingAmount),
-        up: false,
-      },
-      {
-        label: 'Revenue',
-        value: formatCurrency(revenue),
-        change: `${paidInvoices.length} paid`,
-        up: true,
-      },
-    ];
+    return {
+      totalLeads: leads.length,
+      newLeads,
+      activeJobs,
+      inProgressJobs,
+      pendingInvoices: pendingInvoices.length,
+      pendingAmount,
+      revenue,
+      paidCount: paidInvoices.length,
+      jobsToday,
+    };
   }, [invoices, jobs, leads]);
 
+  const actionNeeded = [
+    {
+      title: `${stats.jobsToday} jobs scheduled today`,
+      description: `${stats.inProgressJobs} already in progress.`,
+      tone: 'brand' as const,
+    },
+    {
+      title: `${stats.pendingInvoices} invoices awaiting payment`,
+      description: `${formatCurrency(stats.pendingAmount)} outstanding.`,
+      tone: 'warning' as const,
+    },
+    {
+      title: `${stats.newLeads} fresh leads need review`,
+      description: 'Close the loop before they cool off.',
+      tone: 'success' as const,
+    },
+  ];
+
   return (
-    <div className="flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
-        <header className="header px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Good morning, Akshay</h1>
-            <p className="text-gray-500 text-sm">Here is what is happening with your business today.</p>
-          </div>
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--ops-bg)]">
+      <main className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 xl:px-8">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
+          <AppPageHeader
+            eyebrow="Today / Overview"
+            title="Good morning, Akshay"
+            description="A denser, calmer briefing view for leads, work already on the board, and money that still needs attention."
+            actions={
+              <>
+                <SearchField
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search recent leads…"
+                  className="min-w-[min(360px,100%)]"
+                />
+                <Link href="/crm" className={opsButtonClass('secondary')}>
+                  <Users className="h-4 w-4" />
+                  Review CRM
+                </Link>
+                <Link href="/jobs" className={opsButtonClass('primary')}>
+                  <Briefcase className="h-4 w-4" />
+                  Open jobs
+                </Link>
+              </>
+            }
+          >
+            {showWelcome ? (
+              <div className="rounded-[20px] border border-[var(--ops-success-soft-border)] bg-[var(--ops-success-soft)] px-4 py-3 text-sm text-[var(--ops-success-ink)]">
+                Subscription activated. Your trial is live and billing is set up.
+              </div>
+            ) : null}
+          </AppPageHeader>
 
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm w-64 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <button className="p-2 hover:bg-gray-100 rounded-lg relative">
-              <Bell className="w-5 h-5 text-gray-600" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-          </div>
-        </header>
-
-        <div className="p-8 overflow-auto">
-          {showWelcome ? (
-            <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-3 rounded-lg mb-6 text-sm">
-              Subscription activated. Your trial is live and billing is set up.
-            </div>
-          ) : null}
-          {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg mb-6 text-sm">
+          {error ? (
+            <div className="rounded-[24px] border border-[var(--ops-danger-soft-border)] bg-[var(--ops-danger-soft)] px-4 py-3 text-sm text-[var(--ops-danger-ink)]">
               {error}
             </div>
-          )}
+          ) : null}
 
-          <div className="grid grid-cols-4 gap-6 mb-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-xl shadow-black/5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-500 text-sm">{stat.label}</span>
-                  {stat.up ? (
-                    <span className="flex items-center text-emerald-500 text-sm font-medium bg-emerald-50 px-2 py-0.5 rounded-full">
-                      <TrendingUp className="w-3 h-3 mr-1" />
-                      {stat.change}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 text-sm">{stat.change}</span>
-                  )}
+          <KpiStrip className="xl:grid-cols-5">
+            <StatCard label="Total leads" value={loading ? '…' : stats.totalLeads} meta={`${stats.newLeads} new today`} tone="brand" icon={Users} />
+            <StatCard label="Active jobs" value={loading ? '…' : stats.activeJobs} meta={`${stats.jobsToday} scheduled today`} tone="brand" icon={Briefcase} />
+            <StatCard label="Pending invoices" value={loading ? '…' : stats.pendingInvoices} meta={formatCurrency(stats.pendingAmount)} tone="warning" icon={ClipboardList} />
+            <StatCard label="Revenue" value={loading ? '…' : formatCurrency(stats.revenue)} meta={`${stats.paidCount} paid invoices`} tone="success" icon={DollarSign} />
+            <StatCard label="Receptionist load" value={loading ? '…' : stats.newLeads + stats.jobsToday} meta="Combined new business and active field demand" tone="neutral" icon={Headphones} />
+          </KpiStrip>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+            <div className="space-y-6">
+              <ConsolePanel
+                title="Today needs attention"
+                description="A compact briefing strip that puts the most immediate operational pressure in one place."
+              >
+                <div className="grid gap-3 lg:grid-cols-3">
+                  {actionNeeded.map((item) => (
+                    <div key={item.title} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+                      <StatusBadge tone={item.tone}>{item.title}</StatusBadge>
+                      <p className="mt-3 text-sm leading-6 text-[var(--ops-muted)]">{item.description}</p>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{loading ? '...' : stat.value}</p>
-              </div>
-            ))}
-          </div>
+              </ConsolePanel>
 
-          <div className="grid grid-cols-3 gap-6">
-            <div className="col-span-2 bg-white/80 backdrop-blur-md rounded-2xl border border-white/20 shadow-xl shadow-black/5 overflow-hidden">
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">Recent Leads</h2>
-                <Link href="/crm" className="text-blue-500 text-sm font-medium hover:text-blue-600">
-                  View All
-                </Link>
-              </div>
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Name</th>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Service</th>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Phone</th>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Location</th>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Status</th>
-                    <th className="text-left px-6 py-3 text-sm font-medium text-gray-500">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
+              <ConsolePanel
+                title="Recent leads"
+                description="The pipeline now reads like an operations list, not a decorative dashboard table."
+                action={<Link href="/crm" className={opsButtonClass('ghost', 'sm')}>View full board</Link>}
+              >
+                <DataTable
+                  columns={[
+                    { key: 'name', label: 'Customer' },
+                    { key: 'issue', label: 'Issue' },
+                    { key: 'phone', label: 'Phone' },
+                    { key: 'location', label: 'Location' },
+                    { key: 'status', label: 'Status' },
+                    { key: 'date', label: 'Received' },
+                  ]}
+                  footer={`Showing ${filteredLeads.slice(0, 6).length} of ${leads.length} recent leads`}
+                  minWidthClassName="min-w-[920px]"
+                  className="border-0 shadow-none"
+                >
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        Loading dashboard...
+                      <td colSpan={6} className="px-5 py-12 text-center text-sm text-[var(--ops-muted)]">
+                        Loading dashboard…
                       </td>
                     </tr>
-                  ) : leads.length === 0 ? (
+                  ) : filteredLeads.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        No leads yet.
+                      <td colSpan={6} className="px-5 py-12 text-center text-sm text-[var(--ops-muted)]">
+                        No leads match this search.
                       </td>
                     </tr>
                   ) : (
-                    leads.slice(0, 6).map((lead) => (
-                      <tr key={lead.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-medium text-gray-900">{lead.customer_name || 'Unknown'}</td>
-                        <td className="px-6 py-4 text-gray-600">{lead.issue}</td>
-                        <td className="px-6 py-4 text-gray-500">{lead.customer_phone || '-'}</td>
-                        <td className="px-6 py-4 text-gray-500">{lead.location || '-'}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            lead.status === 'new'
-                              ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white'
-                              : lead.status === 'in_progress'
-                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
-                                : 'bg-gradient-to-r from-emerald-500 to-green-600 text-white'
-                          }`}>
-                            {leadStatusLabels[lead.status] || lead.status}
-                          </span>
+                    filteredLeads.slice(0, 6).map((lead) => (
+                      <tr key={lead.id} className="transition-colors hover:bg-[var(--ops-surface-subtle)]">
+                        <td className="px-5 py-4">
+                          <div>
+                            <p className="text-sm font-semibold text-[var(--ops-text)]">{lead.customer_name || 'Unknown customer'}</p>
+                            <p className="mt-1 text-xs font-mono text-[var(--ops-muted)]">{lead.id}</p>
+                          </div>
                         </td>
-                        <td className="px-6 py-4 text-gray-500 text-sm">
-                          {new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        <td className="px-5 py-4 text-sm text-[var(--ops-text)]">{lead.issue}</td>
+                        <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{lead.customer_phone || '—'}</td>
+                        <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{lead.location || 'No address yet'}</td>
+                        <td className="px-5 py-4">
+                          <StatusBadge tone={leadStatusTone[lead.status] || 'neutral'}>{lead.status}</StatusBadge>
                         </td>
+                        <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{formatDateLabel(lead.created_at)}</td>
                       </tr>
                     ))
                   )}
-                </tbody>
-              </table>
+                </DataTable>
+              </ConsolePanel>
             </div>
 
-            <div className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-xl shadow-black/5">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-              <div className="space-y-3">
-                <Link href="/crm" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 px-4 rounded-xl font-medium hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/25">
-                  <Plus className="w-5 h-5" /> New Lead
-                </Link>
-                <Link href="/jobs" className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-50 transition">
-                  <Plus className="w-5 h-5" /> Quick Add Job
-                </Link>
-                <Link href="/invoices" className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-50 transition">
-                  <Plus className="w-5 h-5" /> View Invoices
-                </Link>
-              </div>
+            <div className="space-y-6 xl:sticky xl:top-6">
+              <ActionCard
+                title="Quick actions"
+                description="The dashboard keeps a short rail of high-frequency office moves instead of pushing them down into isolated pages."
+                action={
+                  <div className="grid gap-2">
+                    <Link href="/crm" className={opsButtonClass('primary')}>
+                      <Users className="h-4 w-4" />
+                      New lead
+                    </Link>
+                    <Link href="/jobs" className={opsButtonClass('secondary')}>
+                      <Briefcase className="h-4 w-4" />
+                      Quick add job
+                    </Link>
+                    <Link href="/invoices" className={opsButtonClass('secondary')}>
+                      <ClipboardList className="h-4 w-4" />
+                      View invoices
+                    </Link>
+                    <Link href="/receptionist" className={opsButtonClass('ghost')}>
+                      <Headphones className="h-4 w-4" />
+                      Open receptionist desk
+                    </Link>
+                  </div>
+                }
+              />
+
+              <ConsolePanel title="Cash and workload signal" description="A compact rail for revenue, collections, and activity pacing.">
+                <div className="space-y-3">
+                  <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Revenue collected</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--ops-text)]">{formatCurrency(stats.revenue)}</p>
+                    <p className="mt-2 text-sm text-[var(--ops-muted)]">{stats.paidCount} invoices paid</p>
+                  </div>
+                  <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Collections risk</p>
+                    <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--ops-text)]">{formatCurrency(stats.pendingAmount)}</p>
+                    <p className="mt-2 text-sm text-[var(--ops-muted)]">{stats.pendingInvoices} invoices still open</p>
+                  </div>
+                  <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-[var(--ops-brand)]" />
+                      <p className="text-sm font-semibold text-[var(--ops-text)]">Today is pacing normally</p>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-[var(--ops-muted)]">
+                      New lead volume and field demand are both active, but there is no obvious dispatch bottleneck yet.
+                    </p>
+                  </div>
+                </div>
+              </ConsolePanel>
             </div>
           </div>
         </div>

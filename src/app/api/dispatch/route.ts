@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   const [jobs, plumbers] = await Promise.all([
     sql`
-      SELECT j.id, j.description, j.service_type, j.status, j.scheduled_at,
+      SELECT j.id, j.description, j.type AS service_type, j.status, j.scheduled_at,
              j.plumber_id, j.customer_id,
              c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address,
              p.name AS plumber_name
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
       LIMIT 200
     `,
     sql`
-      SELECT id, name, specialty, is_active
+      SELECT id, name, role AS specialty, active AS is_active
       FROM plumbers WHERE company_id = ${auth.companyId}
       ORDER BY datetime(created_at) ASC
     `,

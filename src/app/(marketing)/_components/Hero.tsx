@@ -86,7 +86,7 @@ export function Hero() {
                 height={hero.height}
                 priority
                 sizes="(min-width: 1024px) 48vw, 100vw"
-                className="rounded-2xl shadow-[0_40px_80px_-30px_rgba(0,0,0,0.7)] object-cover w-full h-auto"
+                className="h-auto w-full rounded-[28px] border border-white/10 object-cover shadow-[0_40px_80px_-30px_rgba(0,0,0,0.62)]"
               />
 
               <div className="hidden sm:block absolute -left-10 top-10 w-72 brand-card p-4 text-[var(--brand-ink)]">
@@ -98,7 +98,7 @@ export function Hero() {
                 <p className="text-xs text-[var(--brand-slate-muted)] leading-snug mt-1">
                   &ldquo;Water heater leak reported. Preferred arrival window: today.&rdquo;
                 </p>
-                <div className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-[var(--brand-orange-500)] px-2 py-1 rounded-md">
+                <div className="mt-3 inline-flex items-center gap-1 rounded-md bg-[var(--brand-blue-500)] px-2 py-1 text-[11px] font-semibold text-white">
                   Auto-creating lead card
                 </div>
               </div>
@@ -115,7 +115,7 @@ export function Hero() {
                   <Clock3 className="h-3 w-3" /> Customer paid through secure checkout
                 </div>
                 <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full w-full bg-gradient-to-r from-[var(--brand-orange-500)] to-[var(--brand-orange-600)]" />
+                  <div className="h-full w-full bg-gradient-to-r from-[var(--brand-blue-500)] to-[var(--brand-blue-600)]" />
                 </div>
               </div>
             </div>
@@ -155,7 +155,7 @@ function BrowserFrameMock() {
         <div className="grid grid-cols-12 h-[360px]">
           <aside className="col-span-3 bg-[var(--brand-navy-900)] text-white/80 p-5">
             <div className="flex items-center gap-2 mb-6">
-              <span className="h-6 w-6 rounded-md bg-[var(--brand-orange-500)]" />
+              <span className="h-6 w-6 rounded-md bg-[var(--brand-blue-500)]" />
               <span className="font-bold tracking-tight">PlumberOS</span>
             </div>
             <ul className="space-y-1.5 text-sm">
@@ -190,7 +190,7 @@ function BrowserFrameMock() {
                 <div className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-md">
                   This week
                 </div>
-                <div className="px-3 py-1.5 text-xs font-semibold bg-[var(--brand-orange-500)] text-white rounded-md">
+                <div className="rounded-md bg-[var(--brand-blue-500)] px-3 py-1.5 text-xs font-semibold text-white">
                   New lead
                 </div>
               </div>
@@ -206,7 +206,7 @@ function BrowserFrameMock() {
                 <div key={label as string} className="bg-white rounded-lg p-3 border border-slate-200">
                   <div className="text-[11px] text-[var(--brand-slate-muted)]">{label as string}</div>
                   <div className="font-bold text-[var(--brand-ink)] text-lg">{value as string}</div>
-                  <div className="text-[10px] text-[var(--brand-orange-600)]">{sub as string}</div>
+                  <div className="text-[10px] text-[var(--brand-blue-600)]">{sub as string}</div>
                 </div>
               ))}
             </div>

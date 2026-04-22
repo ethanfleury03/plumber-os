@@ -12,7 +12,7 @@ export interface FeatureSpotlightProps {
   image: LandingImage;
   reverse?: boolean;
   mockup?: ReactNode;
-  variant?: 'light' | 'dark';
+  variant?: 'light' | 'soft' | 'dark';
 }
 
 export function FeatureSpotlight({
@@ -27,10 +27,16 @@ export function FeatureSpotlight({
   variant = 'light',
 }: FeatureSpotlightProps) {
   const dark = variant === 'dark';
+  const sectionClass =
+    variant === 'dark'
+      ? 'bg-[linear-gradient(180deg,var(--brand-navy-900),var(--brand-navy-950))] text-white'
+      : variant === 'soft'
+        ? 'bg-[var(--brand-cream)]'
+        : 'bg-[var(--brand-cream-2)]';
   return (
     <section
       id={id}
-      className={`py-24 ${dark ? 'bg-[var(--brand-navy-900)] text-white' : 'bg-white'}`}
+      className={`py-24 ${sectionClass}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={`grid lg:grid-cols-12 gap-12 items-center ${reverse ? 'lg:[&>div:first-child]:order-2' : ''}`}>
@@ -66,7 +72,7 @@ export function FeatureSpotlight({
                 width={image.width}
                 height={image.height}
                 sizes="(min-width: 1024px) 56vw, 100vw"
-                className="w-full h-auto rounded-2xl object-cover shadow-[0_40px_80px_-30px_rgba(11,20,34,0.45)]"
+                className="h-auto w-full rounded-[28px] border border-[rgba(255,255,255,0.08)] object-cover shadow-[0_40px_80px_-30px_rgba(11,20,34,0.38)]"
               />
               {mockup}
             </div>

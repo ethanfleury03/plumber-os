@@ -25,7 +25,7 @@ export default async function MobileJobPage({
 
   const { id } = await params;
   const rows = await sql`
-    SELECT j.id, j.description, j.service_type, j.status, j.scheduled_at,
+    SELECT j.id, j.description, j.type AS service_type, j.status, j.scheduled_at,
            j.notes, j.plumber_id,
            c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
     FROM jobs j

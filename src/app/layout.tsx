@@ -1,18 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Manrope } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import { absoluteUrl, getSiteUrl } from "@/lib/marketing/site";
 import { ConsentManager } from "@/components/consent/ConsentManager";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const appSans = Manrope({
+  variable: "--font-app-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const appMono = IBM_Plex_Mono({
+  variable: "--font-app-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -60,7 +61,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col bg-white`}
+        className={`${appSans.variable} ${appMono.variable} antialiased min-h-screen flex flex-col bg-white`}
       >
         <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
           <div className="flex-1 min-h-0">{children}</div>

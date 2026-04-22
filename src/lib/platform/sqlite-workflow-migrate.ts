@@ -85,6 +85,24 @@ export function applyWorkflowMigrations(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_schedules_contract ON service_contract_schedules(contract_id);
   `);
 
+  if (tableExists(db, 'jobs')) {
+    const cols = tableColumns(db, 'jobs');
+    if (!cols.has('scheduled_at')) {
+      db.exec(`ALTER TABLE jobs ADD COLUMN scheduled_at TEXT`);
+      db.exec(`
+        UPDATE jobs
+        SET scheduled_at = CASE
+          WHEN scheduled_date IS NOT NULL AND scheduled_time IS NOT NULL
+            THEN scheduled_date || ' ' || scheduled_time || ':00'
+          WHEN scheduled_date IS NOT NULL
+            THEN scheduled_date || ' 09:00:00'
+          ELSE NULL
+        END
+        WHERE scheduled_at IS NULL
+      `);
+    }
+  }
+
   if (tableExists(db, 'customers')) {
     const cols = tableColumns(db, 'customers');
     if (!cols.has('email_opt_in')) {

@@ -1,8 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Bot, Loader2 } from 'lucide-react';
+import { ArrowLeft, Bot, Loader2, Save, Settings2 } from 'lucide-react';
+import {
+  AppPageHeader,
+  ConsolePanel,
+  OpsButton,
+  OpsInput,
+  OpsSelect,
+  OpsTextarea,
+  StatusBadge,
+} from '@/components/ops/ui';
+import { humanizeToken, parseJsonSafely } from '@/lib/ops';
 
 interface SettingsRow {
   id: string;
@@ -24,6 +34,33 @@ interface SettingsRow {
   retell_agent_id: string | null;
 }
 
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-[22px] border border-[var(--ops-border)] bg-white px-4 py-4">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-4 w-4 rounded border-[var(--ops-border-strong)] text-[var(--ops-brand)] focus:ring-[var(--ops-focus-ring)]"
+      />
+      <span className="block">
+        <span className="block text-sm font-semibold text-[var(--ops-text)]">{label}</span>
+        <span className="mt-1 block text-sm leading-6 text-[var(--ops-muted)]">{description}</span>
+      </span>
+    </label>
+  );
+}
+
 export default function ReceptionistSettingsPage() {
   const [settings, setSettings] = useState<SettingsRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,11 +75,12 @@ export default function ReceptionistSettingsPage() {
         const res = await fetch('/api/receptionist/settings');
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        if (!cancelled)
+        if (!cancelled) {
           setSettings({
             ...data.settings,
             retell_agent_id: data.settings.retell_agent_id ?? null,
           });
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Load failed');
       } finally {
@@ -55,7 +93,7 @@ export default function ReceptionistSettingsPage() {
   }, []);
 
   const updateField = <K extends keyof SettingsRow>(key: K, value: SettingsRow[K]) => {
-    setSettings((s) => (s ? { ...s, [key]: value } : s));
+    setSettings((current) => (current ? { ...current, [key]: value } : current));
   };
 
   const validateJson = (label: string, raw: string | null) => {
@@ -77,6 +115,7 @@ export default function ReceptionistSettingsPage() {
       validateJson('Booking rules', settings.booking_rules_json) ||
       validateJson('Outcome rules', settings.default_call_outcome_rules_json) ||
       validateJson('Provider config', settings.provider_config_json);
+
     if (jsonErr) {
       setError(jsonErr);
       return;
@@ -119,206 +158,292 @@ export default function ReceptionistSettingsPage() {
     }
   };
 
+  const businessHours = useMemo(
+    () => parseJsonSafely<Record<string, unknown>>(settings?.business_hours_json),
+    [settings?.business_hours_json],
+  );
+  const emergencyKeywords = useMemo(
+    () => parseJsonSafely<string[]>(settings?.emergency_keywords_json),
+    [settings?.emergency_keywords_json],
+  );
+  const allowedActions = useMemo(
+    () => parseJsonSafely<string[]>(settings?.allowed_actions_json),
+    [settings?.allowed_actions_json],
+  );
+
   if (loading || !settings) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" aria-hidden />
+      <div className="flex flex-1 items-center justify-center bg-[var(--ops-bg)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--ops-brand)]" aria-hidden />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
-      <main className="flex-1 overflow-auto">
-        <header className="header px-6 py-4 border-b border-gray-200/80 bg-white/70 backdrop-blur">
-          <Link
-            href="/receptionist"
-            className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-3"
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--ops-bg)]">
+      <main className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 xl:px-8">
+        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
+          <AppPageHeader
+            eyebrow="Receptionist / Settings"
+            icon={Settings2}
+            title="Receptionist policy and routing"
+            description="Keep the day-to-day settings human-friendly, then tuck the raw JSON policy documents into an advanced section for power users."
+            actions={
+              <>
+                <Link href="/receptionist" className="inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--ops-border-strong)] bg-white px-4 text-sm font-semibold text-[var(--ops-text)]">
+                  <ArrowLeft className="h-4 w-4" />
+                  Receptionist
+                </Link>
+                <OpsButton type="button" disabled={saving} onClick={() => void save()} variant="primary">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save settings
+                </OpsButton>
+              </>
+            }
           >
-            <ArrowLeft className="w-4 h-4" aria-hidden />
-            Receptionist
-          </Link>
-          <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-            <Bot className="w-7 h-7 text-indigo-600" aria-hidden />
-            Receptionist settings
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">Policies, hours, and provider mode (mock by default).</p>
-        </header>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone="neutral">Provider {humanizeToken(settings.provider_type)}</StatusBadge>
+              {settings.retell_agent_id ? <StatusBadge tone="success">Retell agent linked</StatusBadge> : <StatusBadge tone="warning">Retell agent missing</StatusBadge>}
+              <StatusBadge tone={settings.callback_booking_enabled ? 'success' : 'neutral'}>
+                Callback booking {settings.callback_booking_enabled ? 'enabled' : 'off'}
+              </StatusBadge>
+              <StatusBadge tone={settings.quote_visit_booking_enabled ? 'success' : 'neutral'}>
+                Quote visits {settings.quote_visit_booking_enabled ? 'enabled' : 'off'}
+              </StatusBadge>
+            </div>
+          </AppPageHeader>
 
-        <div className="p-6 md:p-8 max-w-3xl mx-auto space-y-6">
-          {error ? <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div> : null}
-          {ok ? <div className="bg-emerald-50 text-emerald-800 px-4 py-3 rounded-xl text-sm">{ok}</div> : null}
+          {error ? (
+            <div className="rounded-[24px] border border-[var(--ops-danger-soft-border)] bg-[var(--ops-danger-soft)] px-4 py-3 text-sm text-[var(--ops-danger-ink)]">
+              {error}
+            </div>
+          ) : null}
+          {ok ? (
+            <div className="rounded-[24px] border border-[var(--ops-success-soft-border)] bg-[var(--ops-success-soft)] px-4 py-3 text-sm text-[var(--ops-success-ink)]">
+              {ok}
+            </div>
+          ) : null}
 
-          <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Company display name</label>
-              <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
-                value={settings.company_name || ''}
-                onChange={(e) => updateField('company_name', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Greeting</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 min-h-[80px]"
-                value={settings.greeting || ''}
-                onChange={(e) => updateField('greeting', e.target.value)}
-              />
-            </div>
-            <div className="flex flex-wrap gap-6">
-              <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.disclosure_enabled)}
-                  onChange={(e) => updateField('disclosure_enabled', e.target.checked ? 1 : 0)}
-                />
-                AI disclosure enabled
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.recording_enabled)}
-                  onChange={(e) => updateField('recording_enabled', e.target.checked ? 1 : 0)}
-                />
-                Call recording (policy flag)
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.callback_booking_enabled)}
-                  onChange={(e) => updateField('callback_booking_enabled', e.target.checked ? 1 : 0)}
-                />
-                Callback booking enabled
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.quote_visit_booking_enabled)}
-                  onChange={(e) => updateField('quote_visit_booking_enabled', e.target.checked ? 1 : 0)}
-                />
-                Quote visit booking enabled
-              </label>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">After-hours mode</label>
-              <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
-                value={settings.after_hours_mode || ''}
-                onChange={(e) => updateField('after_hours_mode', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provider type</label>
-              <select
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
-                value={settings.provider_type}
-                onChange={(e) => updateField('provider_type', e.target.value)}
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="space-y-6">
+              <ConsolePanel
+                title="Caller experience"
+                description="Everything the homeowner hears or feels directly should be easy to understand and safe to edit."
+                icon={Bot}
               >
-                <option value="mock">mock (local demo)</option>
-                <option value="retell">retell + Twilio (live)</option>
-                <option value="twilio">twilio (legacy stub)</option>
-                <option value="custom">custom</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                Live calls use Twilio webhooks + Retell SIP regardless of this flag; this value is stored for UI and ops.
-              </p>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="lg:col-span-2">
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      Company display name
+                    </label>
+                    <OpsInput value={settings.company_name || ''} onChange={(event) => updateField('company_name', event.target.value)} />
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      Greeting
+                    </label>
+                    <OpsTextarea
+                      value={settings.greeting || ''}
+                      onChange={(event) => updateField('greeting', event.target.value)}
+                      className="min-h-[120px]"
+                    />
+                  </div>
+
+                  <ToggleRow
+                    label="AI disclosure enabled"
+                    description="Tell callers they are talking to an automated assistant before collecting service details."
+                    checked={Boolean(settings.disclosure_enabled)}
+                    onChange={(checked) => updateField('disclosure_enabled', checked ? 1 : 0)}
+                  />
+                  <ToggleRow
+                    label="Call recording policy"
+                    description="Surface the recording policy flag here even if recording is enforced elsewhere in telephony."
+                    checked={Boolean(settings.recording_enabled)}
+                    onChange={(checked) => updateField('recording_enabled', checked ? 1 : 0)}
+                  />
+                </div>
+              </ConsolePanel>
+
+              <ConsolePanel
+                title="Routing and booking"
+                description="Control after-hours behavior and whether the receptionist is allowed to create callback or quote-visit bookings."
+              >
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      After-hours mode
+                    </label>
+                    <OpsInput
+                      value={settings.after_hours_mode || ''}
+                      onChange={(event) => updateField('after_hours_mode', event.target.value)}
+                      placeholder="callback_queue, emergency_only, custom…"
+                    />
+                  </div>
+
+                  <div className="rounded-[24px] border border-[var(--ops-border)] bg-[var(--ops-surface-subtle)] px-4 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Hours snapshot</p>
+                    {businessHours ? (
+                      <pre className="mt-3 overflow-auto text-xs leading-6 text-[var(--ops-muted)]">
+                        {JSON.stringify(businessHours, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="mt-3 text-sm text-[var(--ops-muted)]">Business hours are empty. Use the advanced section below to define them.</p>
+                    )}
+                  </div>
+
+                  <ToggleRow
+                    label="Callback booking enabled"
+                    description="Allow the receptionist to create callback tasks directly from the call review workflow."
+                    checked={Boolean(settings.callback_booking_enabled)}
+                    onChange={(checked) => updateField('callback_booking_enabled', checked ? 1 : 0)}
+                  />
+                  <ToggleRow
+                    label="Quote visit booking enabled"
+                    description="Allow the receptionist to create quote-visit bookings as a direct next step from the call."
+                    checked={Boolean(settings.quote_visit_booking_enabled)}
+                    onChange={(checked) => updateField('quote_visit_booking_enabled', checked ? 1 : 0)}
+                  />
+                </div>
+              </ConsolePanel>
+
+              <ConsolePanel
+                title="Provider and guidance"
+                description="Keep provider routing, agent identifiers, and internal instructions together so the office knows what powers live handling."
+              >
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      Provider type
+                    </label>
+                    <OpsSelect value={settings.provider_type} onChange={(event) => updateField('provider_type', event.target.value)}>
+                      <option value="mock">mock (local demo)</option>
+                      <option value="retell">retell + Twilio (live)</option>
+                      <option value="twilio">twilio (legacy stub)</option>
+                      <option value="custom">custom</option>
+                    </OpsSelect>
+                    <p className="mt-2 text-sm leading-6 text-[var(--ops-muted)]">
+                      Live calls still rely on Twilio webhooks and Retell SIP. This flag mainly controls UI and operational defaults.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      Retell agent ID
+                    </label>
+                    <OpsInput
+                      value={settings.retell_agent_id || ''}
+                      onChange={(event) => updateField('retell_agent_id', event.target.value || null)}
+                      placeholder="From the Retell dashboard"
+                    />
+                    <p className="mt-2 text-sm leading-6 text-[var(--ops-muted)]">
+                      Overrides <code className="rounded bg-[var(--ops-surface-subtle)] px-1.5 py-0.5 font-mono text-xs">RETELL_AGENT_ID</code> when set.
+                    </p>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">
+                      Internal instructions
+                    </label>
+                    <OpsTextarea
+                      value={settings.internal_instructions || ''}
+                      onChange={(event) => updateField('internal_instructions', event.target.value)}
+                      className="min-h-[140px]"
+                    />
+                  </div>
+                </div>
+              </ConsolePanel>
+
+              <ConsolePanel
+                title="Advanced JSON policy"
+                description="Power-user configuration stays available, but it no longer overwhelms the primary settings experience."
+              >
+                <div className="space-y-4">
+                  {[
+                    {
+                      title: 'Business hours JSON',
+                      value: settings.business_hours_json || '',
+                      onChange: (value: string) => updateField('business_hours_json', value),
+                    },
+                    {
+                      title: 'Emergency keywords JSON array',
+                      value: settings.emergency_keywords_json || '',
+                      onChange: (value: string) => updateField('emergency_keywords_json', value),
+                    },
+                    {
+                      title: 'Booking rules JSON',
+                      value: settings.booking_rules_json || '',
+                      onChange: (value: string) => updateField('booking_rules_json', value),
+                    },
+                    {
+                      title: 'Default outcome rules JSON',
+                      value: settings.default_call_outcome_rules_json || '',
+                      onChange: (value: string) => updateField('default_call_outcome_rules_json', value),
+                    },
+                    {
+                      title: 'Allowed actions JSON',
+                      value: settings.allowed_actions_json || '',
+                      onChange: (value: string) => updateField('allowed_actions_json', value),
+                    },
+                    {
+                      title: 'Provider config JSON',
+                      value: settings.provider_config_json || '',
+                      onChange: (value: string) => updateField('provider_config_json', value),
+                    },
+                  ].map((field) => (
+                    <details key={field.title} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-4 py-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-[var(--ops-text)]">{field.title}</summary>
+                      <div className="mt-4">
+                        <OpsTextarea
+                          value={field.value}
+                          onChange={(event) => field.onChange(event.target.value)}
+                          className="min-h-[140px] font-mono text-xs leading-6"
+                        />
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </ConsolePanel>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Retell agent ID</label>
-              <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 font-mono"
-                placeholder="From Retell dashboard"
-                value={settings.retell_agent_id || ''}
-                onChange={(e) => updateField('retell_agent_id', e.target.value || null)}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Overrides <code className="bg-gray-100 px-1 rounded">RETELL_AGENT_ID</code> when set. Required for
-                registerPhoneCall.
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Business hours (JSON)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[72px]"
-                value={settings.business_hours_json || ''}
-                onChange={(e) => updateField('business_hours_json', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Emergency keywords (JSON array)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[72px]"
-                value={settings.emergency_keywords_json || ''}
-                onChange={(e) => updateField('emergency_keywords_json', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Booking rules (JSON)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[88px]"
-                value={settings.booking_rules_json || ''}
-                onChange={(e) => updateField('booking_rules_json', e.target.value)}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Optional keys: <code className="bg-gray-100 px-1 rounded">minNoticeHours</code>,{' '}
-                <code className="bg-gray-100 px-1 rounded">duplicateWindowMinutes</code>,{' '}
-                <code className="bg-gray-100 px-1 rounded">timezone</code> (e.g. America/Toronto),{' '}
-                <code className="bg-gray-100 px-1 rounded">spamKeywords</code> (string[]),{' '}
-                <code className="bg-gray-100 px-1 rounded">silenceTranscriptMaxChars</code>,{' '}
-                <code className="bg-gray-100 px-1 rounded">emergencyEscalation</code> (
-                <code className="bg-gray-100 px-1 rounded">flag_only</code> |{' '}
-                <code className="bg-gray-100 px-1 rounded">flag_and_callback</code>).
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Default outcome rules (JSON)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[56px]"
-                value={settings.default_call_outcome_rules_json || ''}
-                onChange={(e) => updateField('default_call_outcome_rules_json', e.target.value)}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                May include <code className="bg-gray-100 px-1 rounded">defaultDisposition</code> and{' '}
-                <code className="bg-gray-100 px-1 rounded">emergencyEscalation</code> for documentation; primary
-                escalation behavior is read from booking rules when present.
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Allowed actions (JSON)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[56px]"
-                value={settings.allowed_actions_json || ''}
-                onChange={(e) => updateField('allowed_actions_json', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Internal instructions</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 min-h-[100px]"
-                value={settings.internal_instructions || ''}
-                onChange={(e) => updateField('internal_instructions', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provider config (JSON, non-secret)</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono text-gray-900 min-h-[56px]"
-                value={settings.provider_config_json || ''}
-                onChange={(e) => updateField('provider_config_json', e.target.value)}
-              />
+
+            <div className="space-y-6 xl:sticky xl:top-6">
+              <ConsolePanel
+                title="Policy snapshot"
+                description="A quick operator summary of what the receptionist is currently allowed to do."
+              >
+                <div className="flex flex-wrap gap-2">
+                  {allowedActions?.length ? (
+                    allowedActions.map((action) => (
+                      <StatusBadge key={action} tone="brand">{humanizeToken(action)}</StatusBadge>
+                    ))
+                  ) : (
+                    <StatusBadge tone="neutral">No allowed-actions policy set</StatusBadge>
+                  )}
+                </div>
+                {emergencyKeywords?.length ? (
+                  <div className="mt-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Emergency keywords</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {emergencyKeywords.map((keyword) => (
+                        <StatusBadge key={keyword} tone="warning">{keyword}</StatusBadge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </ConsolePanel>
+
+              <ConsolePanel
+                title="Operational guidance"
+                description="Keep the purpose of these settings obvious while you tune the receptionist for live or demo use."
+              >
+                <ul className="space-y-3 text-sm leading-6 text-[var(--ops-muted)]">
+                  <li>Default mode should be safe for demos first, then progressively tightened for live telephony.</li>
+                  <li>Use the simple controls above for day-to-day changes and the advanced JSON only when the workflow truly needs it.</li>
+                  <li>Whenever you change routing, save here first, then run a mock call from the main receptionist page to confirm behavior.</li>
+                </ul>
+              </ConsolePanel>
             </div>
           </div>
-
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => void save()}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : null}
-            Save settings
-          </button>
         </div>
       </main>
     </div>

@@ -99,14 +99,14 @@ export function CommandPalette() {
       aria-modal="true"
     >
       <div
-        className="w-full max-w-xl bg-white rounded-lg shadow-xl overflow-hidden"
+        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--ops-border-strong)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,255,0.96))] shadow-[0_28px_64px_-24px_rgba(8,18,35,0.58)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 border-b px-4 py-3">
+        <div className="flex items-center gap-3 border-b border-[var(--ops-border)] px-5 py-4">
           {loading ? (
-            <Loader2 className="size-4 text-muted-foreground animate-spin" />
+            <Loader2 className="size-4 animate-spin text-[var(--ops-muted)]" />
           ) : (
-            <Search className="size-4 text-muted-foreground" />
+            <Search className="size-4 text-[var(--ops-muted)]" />
           )}
           <input
             ref={inputRef}
@@ -117,28 +117,28 @@ export function CommandPalette() {
             }}
             onKeyDown={onInputKey}
             placeholder="Search customers, jobs, invoices, estimates, leads…"
-            className="flex-1 outline-none text-sm bg-transparent"
+            className="flex-1 bg-transparent text-sm text-[var(--ops-text)] outline-none placeholder:text-[var(--ops-muted)]"
           />
-          <kbd className="text-xs text-muted-foreground border rounded px-1.5 py-0.5">Esc</kbd>
+          <kbd className="rounded-lg border border-[var(--ops-border)] bg-white px-2 py-1 text-xs text-[var(--ops-muted)]">Esc</kbd>
         </div>
-        <div className="max-h-80 overflow-y-auto">
+        <div className="max-h-96 overflow-y-auto">
           {results.length === 0 && query.trim().length >= 2 && !loading && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">No results</div>
+            <div className="px-4 py-10 text-center text-sm text-[var(--ops-muted)]">No results</div>
           )}
           {results.map((r, i) => (
             <button
               key={`${r.type}-${r.id}`}
               onMouseEnter={() => setActive(i)}
               onClick={() => go(r)}
-              className={`w-full text-left flex items-center justify-between px-4 py-2.5 border-b last:border-b-0 ${
-                i === active ? 'bg-blue-50' : 'bg-white'
+              className={`flex w-full items-center justify-between border-b border-[var(--ops-border)] px-5 py-3 text-left transition-colors last:border-b-0 ${
+                i === active ? 'bg-[var(--ops-brand-soft)]' : 'bg-transparent hover:bg-[var(--ops-surface-subtle)]'
               }`}
             >
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{r.title}</div>
-                <div className="text-xs text-muted-foreground truncate">{r.subtitle}</div>
+                <div className="truncate text-sm font-semibold text-[var(--ops-text)]">{r.title}</div>
+                <div className="truncate text-xs text-[var(--ops-muted)]">{r.subtitle}</div>
               </div>
-              <span className="text-[11px] uppercase tracking-wide text-muted-foreground ml-4">
+              <span className="ml-4 rounded-full border border-[var(--ops-border)] bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--ops-muted)]">
                 {r.type}
               </span>
             </button>

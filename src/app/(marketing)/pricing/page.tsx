@@ -72,7 +72,7 @@ export default async function PricingPage({
       {showCanceled ? (
         <section className="bg-[var(--brand-cream)] pt-8 pb-2">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="brand-card p-4 text-sm text-[var(--brand-ink)] border border-amber-200 bg-amber-50">
+            <div className="brand-card border border-[var(--brand-orange-100)] bg-[var(--brand-orange-50)] p-4 text-sm text-[var(--brand-ink)]">
               Checkout was canceled. Your account was not charged.
             </div>
           </div>

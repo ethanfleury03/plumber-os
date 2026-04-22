@@ -45,12 +45,12 @@ export function MarketingFooter() {
   ];
 
   return (
-    <footer className="bg-[var(--brand-navy-900)] text-white/70">
+    <footer className="border-t border-white/8 bg-[linear-gradient(180deg,var(--brand-navy-900),var(--brand-navy-950))] text-white/70">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-10">
           <div className="col-span-2">
             <Link href="/" className="inline-flex items-center gap-2.5 text-white">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-orange-500)] to-[var(--brand-orange-600)] text-white shadow-[0_10px_30px_-10px_rgba(242,106,31,0.7)]">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--brand-blue-500)] to-[var(--brand-blue-600)] text-white shadow-[0_14px_32px_-16px_rgba(37,76,137,0.72)]">
                 <Wrench className="h-5 w-5" />
               </span>
               <span className="text-lg font-bold tracking-tight">PlumberOS</span>

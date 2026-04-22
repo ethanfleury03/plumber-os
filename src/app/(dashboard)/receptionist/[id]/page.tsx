@@ -8,15 +8,27 @@ import {
   ArrowLeft,
   Ban,
   Bot,
-  Briefcase,
   Calendar,
+  ClipboardList,
   Loader2,
   Phone,
   RefreshCw,
+  ShieldAlert,
   UserPlus,
-  UserCog,
-  ClipboardList,
+  Users,
 } from 'lucide-react';
+import {
+  AppPageHeader,
+  ConsolePanel,
+  EmptyState,
+  OpsButton,
+  RightRail,
+  SegmentedFilterBar,
+  StatusBadge,
+  TimelineList,
+  opsButtonClass,
+} from '@/components/ops/ui';
+import { cn, formatDateTimeLabel, humanizeToken, parseJsonSafely } from '@/lib/ops';
 
 interface Segment {
   id: string;
@@ -62,12 +74,38 @@ interface StaffTaskRow {
   assigned_to_plumber_id: string | null;
 }
 
+type CallRecord = Record<string, unknown>;
+
+const reviewTabs = [
+  { value: 'summary', label: 'Summary' },
+  { value: 'events', label: 'Events' },
+  { value: 'tools', label: 'Tools' },
+  { value: 'bookings', label: 'Bookings' },
+  { value: 'staff', label: 'Staff tasks' },
+] as const;
+
+function dispositionTone(disposition: string | null | undefined) {
+  if (!disposition) return 'neutral' as const;
+  if (disposition === 'emergency') return 'danger' as const;
+  if (disposition === 'spam') return 'muted' as const;
+  if (disposition === 'callback_booked' || disposition === 'quote_visit_booked') return 'success' as const;
+  if (disposition === 'follow_up_needed') return 'warning' as const;
+  return 'brand' as const;
+}
+
+function compactJson(value: string | null | undefined, maxLength = 360) {
+  if (!value?.trim()) return '—';
+  const parsed = parseJsonSafely<unknown>(value);
+  const text = parsed ? JSON.stringify(parsed, null, 2) : value;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
 export default function ReceptionistCallDetailPage() {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : '';
 
   const [detail, setDetail] = useState<{
-    call: Record<string, unknown>;
+    call: CallRecord;
     segments: Segment[];
     events: EventRow[];
     bookings: BookingRow[];
@@ -78,6 +116,7 @@ export default function ReceptionistCallDetailPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
+  const [activeTab, setActiveTab] = useState<(typeof reviewTabs)[number]['value']>('summary');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -137,9 +176,7 @@ export default function ReceptionistCallDetailPage() {
         body: JSON.stringify({ action }),
       });
       const data = await res.json();
-      if (data.error) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'Staff action failed');
-      }
+      if (data.error) throw new Error(typeof data.error === 'string' ? data.error : 'Staff action failed');
       setActionMsg('Saved.');
       await load();
     } catch (e) {
@@ -151,707 +188,465 @@ export default function ReceptionistCallDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" aria-hidden />
+      <div className="flex flex-1 items-center justify-center bg-[var(--ops-bg)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--ops-brand)]" aria-hidden />
       </div>
     );
   }
 
   if (error || !detail) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-gray-50 gap-4">
-        <p className="text-red-600">{error || 'Not found'}</p>
-        <Link href="/receptionist" className="text-indigo-600 font-medium">
-          Back to receptionist
-        </Link>
+      <div className="flex flex-1 items-center justify-center bg-[var(--ops-bg)] px-4">
+        <EmptyState
+          title="Call detail unavailable"
+          description={error || 'This receptionist call could not be loaded.'}
+          action={<Link href="/receptionist" className={opsButtonClass('primary')}>Back to receptionist</Link>}
+          icon={Bot}
+        />
       </div>
     );
   }
 
   const { call, segments, events, bookings, toolInvocations, staffTasks } = detail;
-  const isRetell = call.provider === 'retell';
-  let extracted: Record<string, unknown> | null = null;
-  try {
-    extracted = call.extracted_json ? (JSON.parse(call.extracted_json as string) as Record<string, unknown>) : null;
-  } catch {
-    extracted = null;
-  }
-
-  const disposition = call.disposition as string | null;
-  const isEmergency = disposition === 'emergency';
-
-  let callMeta: Record<string, unknown> | null = null;
-  try {
-    callMeta = call.receptionist_meta_json
-      ? (JSON.parse(call.receptionist_meta_json as string) as Record<string, unknown>)
-      : null;
-  } catch {
-    callMeta = null;
-  }
+  const extracted = parseJsonSafely<Record<string, unknown>>(call.extracted_json as string | null);
+  const callMeta = parseJsonSafely<Record<string, unknown>>(call.receptionist_meta_json as string | null);
   const completeness = callMeta?.completeness as
     | { sufficient?: boolean; missingLabels?: string[]; items?: { key: string; ok: boolean; detail?: string }[] }
     | undefined;
+  const disposition = call.disposition as string | null;
+  const isEmergency = disposition === 'emergency';
+  const isRetell = call.provider === 'retell';
 
-  return (
-    <div className="flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-50 via-gray-100 to-slate-100">
-      <main className="flex-1 overflow-auto">
-        <header className="header px-6 py-4 border-b border-gray-200/80 bg-white/70 backdrop-blur">
-          <Link
-            href="/receptionist"
-            className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-3"
-          >
-            <ArrowLeft className="w-4 h-4" aria-hidden />
-            Receptionist
-          </Link>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                <Bot className="w-7 h-7 text-indigo-600" aria-hidden />
-                Call detail
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">
-                {(call.caller_name as string) || 'Unknown'} · {(call.from_phone as string) || '—'} ·{' '}
-                <span className="font-mono text-xs">{id}</span>
-              </p>
-              {call.recording_url ? (
-                <p className="text-sm mt-2">
-                  <a
-                    href={String(call.recording_url)}
-                    className="text-indigo-600 font-medium hover:underline"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open recording
-                  </a>
-                </p>
-              ) : null}
-              <p className="text-sm mt-2">
-                <Link
-                  href={`/estimates/new?receptionist_call_id=${encodeURIComponent(id)}`}
-                  className="inline-flex items-center gap-1 text-teal-700 font-medium hover:underline"
-                >
-                  <ClipboardList className="w-4 h-4" aria-hidden />
-                  New estimate from this call
-                </Link>
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <Link
-                href={`/estimates/new?receptionist_call_id=${encodeURIComponent(id)}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
-              >
-                <ClipboardList className="w-4 h-4" aria-hidden />
-                New estimate
-              </Link>
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
-                {String(call.provider || 'mock')}
-              </span>
-              {call.provider_call_id ? (
-                <span className="px-3 py-1 rounded-full text-xs font-mono bg-gray-100 text-gray-700 max-w-[220px] truncate" title={String(call.provider_call_id)}>
-                  Retell: {String(call.provider_call_id)}
-                </span>
-              ) : null}
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  call.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
-                }`}
-              >
-                {String(call.status)}
-              </span>
-              {disposition ? (
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    isEmergency ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-                  }`}
-                >
-                  {disposition}
-                </span>
-              ) : null}
-            </div>
+  const transcriptItems = segments.length
+    ? segments.map((segment) => ({
+        id: segment.id,
+        title: humanizeToken(segment.speaker),
+        body: segment.text,
+        meta: formatDateTimeLabel(segment.created_at),
+        tone:
+          segment.speaker.toLowerCase().includes('assistant') || segment.speaker.toLowerCase().includes('ai')
+            ? ('brand' as const)
+            : segment.speaker.toLowerCase().includes('customer') || segment.speaker.toLowerCase().includes('caller')
+              ? ('warning' as const)
+              : ('neutral' as const),
+      }))
+    : [];
+
+  const tabContent = (() => {
+    if (activeTab === 'summary') {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">AI summary</p>
+            <p className="mt-3 text-sm leading-6 text-[var(--ops-text)]">{(call.ai_summary as string) || 'No summary yet.'}</p>
           </div>
-        </header>
-
-        <div className="p-6 md:p-8 space-y-6 max-w-6xl mx-auto">
-          {isEmergency ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-3 text-red-900">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
-              <div>
-                <p className="font-semibold">
-                  {callMeta?.operationalPriority === 'emergency_callback_required'
-                    ? 'Urgent callback needed'
-                    : callMeta?.operationalPriority === 'emergency_incomplete_but_urgent'
-                      ? 'Emergency reported; details incomplete — urgent human action required'
-                      : 'Emergency flagged'}
-                </p>
-                <p className="text-sm text-red-800">Prioritize on-call dispatch and confirm safety (gas/water).</p>
-                {Array.isArray(callMeta?.emergencyRationale) && (callMeta?.emergencyRationale as string[]).length ? (
-                  <p className="text-xs text-red-800/90 mt-2">
-                    Signals: {(callMeta.emergencyRationale as string[]).slice(0, 6).join(' · ')}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {callMeta?.callerBehavior === 'abusive_but_legitimate' ? (
-            <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3 text-orange-900">
-              <Ban className="w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
-              <div>
-                <p className="font-semibold">Abusive caller, legitimate plumbing issue</p>
-                <p className="text-sm text-orange-800">
-                  {String(callMeta.behaviorRationale || 'Off-topic/profane language occurred, but a legitimate plumbing issue was identified')}
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {callMeta ? (
-            <div className="rounded-2xl border border-gray-200 bg-white/90 shadow-sm p-6 space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Call quality &amp; safety</h2>
-
-              {/* Operational priority */}
-              <div>
-                <p className="text-sm font-medium text-gray-800 mb-1">Operational priority</p>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {callMeta.operationalPriority ? (
-                    <span className={`px-2 py-1 rounded-full font-semibold ${
-                      String(callMeta.operationalPriority).startsWith('emergency') ? 'bg-red-100 text-red-800' :
-                      callMeta.operationalPriority === 'urgent_follow_up' ? 'bg-amber-100 text-amber-900' :
-                      callMeta.operationalPriority === 'spam_no_action' ? 'bg-gray-100 text-gray-600' :
-                      'bg-slate-100 text-slate-800'
-                    }`}>
-                      {String(callMeta.operationalPriority).replace(/_/g, ' ')}
-                    </span>
-                  ) : null}
-                  {callMeta.emergencyTier ? (
-                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-800">
-                      Tier: {String(callMeta.emergencyTier)}
-                    </span>
-                  ) : null}
-                  {callMeta.callerBehavior ? (
-                    <span className={`px-2 py-1 rounded-full ${
-                      callMeta.callerBehavior === 'abusive_but_legitimate' ? 'bg-orange-100 text-orange-800' :
-                      callMeta.callerBehavior === 'spam_or_prank' ? 'bg-gray-200 text-gray-700' :
-                      callMeta.callerBehavior === 'emergency_legitimate' ? 'bg-red-50 text-red-800' :
-                      'bg-slate-100 text-slate-800'
-                    }`}>
-                      {String(callMeta.callerBehavior).replace(/_/g, ' ')}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2 text-xs">
-                {callMeta.internalOutcome ? (
-                  <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-900">
-                    Outcome: {String(callMeta.internalOutcome).replace(/_/g, ' ')}
-                  </span>
-                ) : null}
-                {callMeta.issueSuspicious ? (
-                  <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-900">Transcript ambiguity</span>
-                ) : null}
-                {callMeta.afterHours && typeof callMeta.afterHours === 'object' ? (
-                  <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-800">
-                    After hours: {(callMeta.afterHours as { active?: boolean }).active ? 'yes' : 'no'}
-                  </span>
-                ) : null}
-              </div>
-
-              {/* Data completeness — separate from operational priority */}
-              {completeness ? (
-                <div>
-                  <p className="text-sm font-medium text-gray-800 mb-2">
-                    Data completeness{' '}
-                    <span className={completeness.sufficient ? 'text-emerald-600' : 'text-amber-700'}>
-                      {completeness.sufficient ? '(complete)' : '(gaps)'}
-                    </span>
-                    {isEmergency && !completeness.sufficient ? (
-                      <span className="text-xs text-red-700 ml-2">(emergency preserved despite gaps)</span>
-                    ) : null}
-                  </p>
-                  {!completeness.sufficient && Array.isArray(completeness.missingLabels) ? (
-                    <ul className="text-sm text-amber-900 list-disc pl-5 space-y-0.5">
-                      {completeness.missingLabels.map((m) => (
-                        <li key={m}>{m}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {Array.isArray(completeness.items) ? (
-                    <ul className="mt-3 space-y-1 text-xs text-gray-600 max-h-40 overflow-y-auto">
-                      {completeness.items.map((it) => (
-                        <li key={it.key} className={it.ok ? '' : 'text-amber-800'}>
-                          {it.ok ? '✓' : '✗'} {it.key}
-                          {it.detail ? ` — ${it.detail}` : ''}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {/* Field confidence / provenance */}
-              {callMeta.fieldConfidence && typeof callMeta.fieldConfidence === 'object' ? (
-                <div>
-                  <p className="text-sm font-medium text-gray-800 mb-1">Field confidence</p>
-                  <ul className="space-y-0.5 text-xs text-gray-600">
-                    {Object.entries(callMeta.fieldConfidence as Record<string, { confidence?: string; provenance?: string }>).map(([k, v]) => (
-                      <li key={k} className={v?.confidence === 'missing' ? 'text-amber-800' : v?.confidence === 'weak' ? 'text-yellow-700' : ''}>
-                        <span className="font-medium">{k}</span>: {v?.confidence || '?'}{v?.provenance ? ` (${v.provenance.replace(/_/g, ' ')})` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {Array.isArray(callMeta.incompleteReasons) && (callMeta.incompleteReasons as string[]).length ? (
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Incomplete / abandoned signals</p>
-                  <p className="text-sm text-gray-600">{(callMeta.incompleteReasons as string[]).join(' · ')}</p>
-                </div>
-              ) : null}
-              {callMeta.issueRaw || callMeta.issueNormalized ? (
-                <div className="text-sm text-gray-700">
-                  <span className="font-medium text-gray-900">Issue text:</span> raw {String(callMeta.issueRaw || '—')}
-                  {callMeta.issueNormalized ? (
-                    <span className="block mt-1">
-                      Normalized: <span className="font-medium">{String(callMeta.issueNormalized)}</span> (
-                      {String(callMeta.issueNormalizationSource || 'n/a')})
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {callMeta.duplicateResolution && typeof callMeta.duplicateResolution === 'object' ? (
-                <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-sm text-sky-950">
-                  <p className="font-medium">Duplicate handling</p>
-                  <p className="text-xs mt-1">
-                    Outcome:{' '}
-                    <span className="font-semibold">
-                      {String((callMeta.duplicateResolution as { outcome?: string }).outcome || '—').replace(/_/g, ' ')}
-                    </span>
-                    {(callMeta.duplicateResolution as { priorJobId?: string }).priorJobId ? (
-                      <span className="block font-mono text-[11px] mt-1">
-                        Prior job: {(callMeta.duplicateResolution as { priorJobId?: string }).priorJobId}
-                      </span>
-                    ) : null}
-                    {(callMeta.duplicateResolution as { priorLeadId?: string }).priorLeadId ? (
-                      <span className="block font-mono text-[11px] mt-1">
-                        Prior lead: {(callMeta.duplicateResolution as { priorLeadId?: string }).priorLeadId}
-                      </span>
-                    ) : null}
-                    {(callMeta.duplicateResolution as { priorCallId?: string }).priorCallId ? (
-                      <span className="block font-mono text-[11px] mt-1">
-                        Prior call: {(callMeta.duplicateResolution as { priorCallId?: string }).priorCallId}
-                      </span>
-                    ) : null}
-                  </p>
-                </div>
-              ) : null}
-              {Array.isArray(callMeta.duplicateNotes) && (callMeta.duplicateNotes as string[]).length ? (
-                <p className="text-xs text-gray-500">
-                  Duplicate hints: {(callMeta.duplicateNotes as string[]).join(' · ')}
-                </p>
-              ) : null}
-              {callMeta.lastToolError && typeof callMeta.lastToolError === 'object' ? (
-                <p className="text-xs text-red-700">
-                  Last tool issue:{' '}
-                  {JSON.stringify(callMeta.lastToolError).slice(0, 280)}
-                  {(JSON.stringify(callMeta.lastToolError).length > 280 ? '…' : '')}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
+          <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Recommended next step</p>
+            <p className="mt-3 text-sm leading-6 text-[var(--ops-text)]">
+              {(call.recommended_next_step as string) || 'Office review recommended.'}
+            </p>
+          </div>
           {callMeta?.caseRecord && typeof callMeta.caseRecord === 'object' ? (
-            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 shadow-sm p-6 space-y-3">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-indigo-600" aria-hidden />
-                Best available case summary
-              </h2>
-              <p className="text-sm text-gray-800 font-medium">
-                {(callMeta.caseRecord as { canonicalIssueSummary?: string }).canonicalIssueSummary || '—'}
+            <div className="rounded-[24px] border border-[var(--ops-border)] bg-[var(--ops-surface-subtle)] px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">Best available case record</p>
+              <p className="mt-3 text-sm font-semibold text-[var(--ops-text)]">
+                {String((callMeta.caseRecord as { canonicalIssueSummary?: string }).canonicalIssueSummary || '—')}
               </p>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-700">
-                <div>
-                  <dt className="text-gray-500">Callback #</dt>
-                  <dd className="font-mono">
-                    {(callMeta.caseRecord as { bestCallbackPhone?: string | null }).bestCallbackPhone || '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-gray-500">Service address</dt>
-                  <dd>{(callMeta.caseRecord as { bestServiceAddress?: string | null }).bestServiceAddress || '—'}</dd>
-                </div>
-              </dl>
               {Array.isArray((callMeta.caseRecord as { missingCriticalFields?: string[] }).missingCriticalFields) &&
               (callMeta.caseRecord as { missingCriticalFields: string[] }).missingCriticalFields.length ? (
-                <div>
-                  <p className="text-xs font-semibold text-amber-900">Needs confirmation</p>
-                  <ul className="text-xs text-amber-900 list-disc pl-4 mt-1">
-                    {(callMeta.caseRecord as { missingCriticalFields: string[] }).missingCriticalFields.map((m) => (
-                      <li key={m}>{m}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {Array.isArray((callMeta.caseRecord as { unresolvedAmbiguities?: string[] }).unresolvedAmbiguities) &&
-              (callMeta.caseRecord as { unresolvedAmbiguities: string[] }).unresolvedAmbiguities.length ? (
-                <div>
-                  <p className="text-xs font-semibold text-gray-700">Ambiguities</p>
-                  <ul className="text-xs text-gray-600 list-disc pl-4 mt-1">
-                    {(callMeta.caseRecord as { unresolvedAmbiguities: string[] }).unresolvedAmbiguities.map((m) => (
-                      <li key={m}>{m}</li>
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ops-warning-ink)]">Needs confirmation</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--ops-warning-ink)]">
+                    {(callMeta.caseRecord as { missingCriticalFields: string[] }).missingCriticalFields.map((item) => (
+                      <li key={item}>{item}</li>
                     ))}
                   </ul>
                 </div>
               ) : null}
             </div>
           ) : null}
-
           {callMeta?.callerLinkage && typeof callMeta.callerLinkage === 'object' ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Caller / CRM match</h2>
-              <p className="text-sm text-gray-800">
-                <span className="font-medium">Outcome:</span>{' '}
-                {String((callMeta.callerLinkage as { outcome?: string }).outcome || '—').replace(/_/g, ' ')}
+            <div className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ops-muted)]">CRM linkage</p>
+              <p className="mt-3 text-sm text-[var(--ops-text)]">
+                Outcome: {humanizeToken(String((callMeta.callerLinkage as { outcome?: string }).outcome || 'unknown'))}
               </p>
               {(callMeta.callerLinkage as { customerId?: string }).customerId ? (
-                <p className="text-xs font-mono text-gray-600 mt-1">
-                  Customer: {(callMeta.callerLinkage as { customerId: string }).customerId}
+                <p className="mt-2 text-xs font-mono text-[var(--ops-muted)]">
+                  Customer {(callMeta.callerLinkage as { customerId: string }).customerId}
                 </p>
               ) : null}
               {(callMeta.callerLinkage as { leadId?: string }).leadId ? (
-                <p className="text-xs font-mono text-gray-600 mt-1">
-                  Lead: {(callMeta.callerLinkage as { leadId: string }).leadId}
-                </p>
-              ) : null}
-              {(callMeta.callerLinkage as { priorCallId?: string }).priorCallId ? (
-                <p className="text-xs font-mono text-gray-600 mt-1">
-                  Prior call: {(callMeta.callerLinkage as { priorCallId: string }).priorCallId}
-                </p>
-              ) : null}
-              {Array.isArray((callMeta.callerLinkage as { rationale?: string[] }).rationale) ? (
-                <p className="text-xs text-gray-600 mt-2">
-                  {(callMeta.callerLinkage as { rationale: string[] }).rationale.join(' · ')}
+                <p className="mt-1 text-xs font-mono text-[var(--ops-muted)]">
+                  Lead {(callMeta.callerLinkage as { leadId: string }).leadId}
                 </p>
               ) : null}
             </div>
           ) : null}
+        </div>
+      );
+    }
 
-          {callMeta?.staffWorkflow && typeof callMeta.staffWorkflow === 'object' ? (
-            <div className="rounded-xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-800">
-              <p className="font-semibold text-gray-900 flex items-center gap-2">
-                <UserCog className="w-4 h-4" aria-hidden />
-                Operational status
-              </p>
-              <p className="mt-1">
-                Waiting on:{' '}
-                <span className="font-medium">
-                  {String((callMeta.staffWorkflow as { waitingOn?: string | null }).waitingOn || 'office').replace(
-                    /_/g,
-                    ' ',
-                  )}
-                </span>
-              </p>
-              {(callMeta.staffWorkflow as { recommendedHumanAction?: string }).recommendedHumanAction ? (
-                <p className="text-xs text-gray-600 mt-1">
-                  {(callMeta.staffWorkflow as { recommendedHumanAction: string }).recommendedHumanAction}
+    if (activeTab === 'events') {
+      return events.length ? (
+        <div className="space-y-3">
+          {events.map((event) => (
+            <div key={event.id} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--ops-text)]">{humanizeToken(event.event_type)}</p>
+                  <p className="mt-1 text-xs text-[var(--ops-muted)]">{event.source || 'system'} · {formatDateTimeLabel(event.created_at)}</p>
+                </div>
+                <StatusBadge tone="neutral" mono>{event.id}</StatusBadge>
+              </div>
+              <pre className="mt-3 overflow-auto rounded-[18px] bg-[var(--ops-surface-subtle)] px-4 py-3 text-xs leading-6 text-[var(--ops-muted)]">
+                {compactJson(event.payload_json)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No event timeline yet"
+          description="Webhook or orchestration events will show up here as the receptionist call flows through the system."
+          icon={Calendar}
+        />
+      );
+    }
+
+    if (activeTab === 'tools') {
+      return toolInvocations.length ? (
+        <div className="space-y-3">
+          {toolInvocations.map((tool) => (
+            <div key={tool.id} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--ops-text)]">{humanizeToken(tool.tool_name)}</p>
+                  <p className="mt-1 text-xs text-[var(--ops-muted)]">{formatDateTimeLabel(tool.created_at)}</p>
+                </div>
+                <StatusBadge tone={tool.status === 'success' ? 'success' : tool.status === 'error' ? 'danger' : 'neutral'}>
+                  {humanizeToken(tool.status)}
+                </StatusBadge>
+              </div>
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-[18px] bg-[var(--ops-surface-subtle)] px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Request</p>
+                  <pre className="mt-2 overflow-auto text-xs leading-6 text-[var(--ops-muted)]">{compactJson(tool.request_json)}</pre>
+                </div>
+                <div className="rounded-[18px] bg-[var(--ops-surface-subtle)] px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Response</p>
+                  <pre className="mt-2 overflow-auto text-xs leading-6 text-[var(--ops-muted)]">{compactJson(tool.response_json)}</pre>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No tool invocations recorded"
+          description="When the receptionist uses downstream tools, the request and response context will appear here."
+          icon={Bot}
+        />
+      );
+    }
+
+    if (activeTab === 'bookings') {
+      return bookings.length ? (
+        <div className="space-y-3">
+          {bookings.map((booking) => (
+            <div key={booking.id} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--ops-text)]">{humanizeToken(booking.booking_type)}</p>
+                  <p className="mt-1 text-xs text-[var(--ops-muted)]">
+                    {booking.scheduled_start ? formatDateTimeLabel(booking.scheduled_start) : 'Not scheduled yet'}
+                  </p>
+                </div>
+                <StatusBadge tone={booking.status === 'booked' ? 'success' : booking.status === 'cancelled' ? 'danger' : 'warning'}>
+                  {humanizeToken(booking.status)}
+                </StatusBadge>
+              </div>
+              {booking.notes ? <p className="mt-3 text-sm leading-6 text-[var(--ops-muted)]">{booking.notes}</p> : null}
+              {booking.job_id ? <p className="mt-3 text-xs font-mono text-[var(--ops-muted)]">Job {booking.job_id}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No bookings created"
+          description="Callback or quote-visit bookings attached to this call will appear here."
+          icon={Calendar}
+        />
+      );
+    }
+
+    return staffTasks.length ? (
+      <div className="space-y-3">
+        {staffTasks.map((task) => (
+          <div key={task.id} className="rounded-[24px] border border-[var(--ops-border)] bg-white px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--ops-text)]">{task.title}</p>
+                <p className="mt-1 text-xs text-[var(--ops-muted)]">
+                  {humanizeToken(task.task_type)} · {formatDateTimeLabel(task.created_at)}
                 </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {staffTasks.length > 0 ? (
-            <div className="rounded-2xl border border-gray-200 bg-white/90 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Staff tasks</h2>
-              <ul className="space-y-2 text-sm">
-                {staffTasks.map((t) => (
-                  <li key={t.id} className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        t.priority === 'urgent' ? 'bg-red-100 text-red-900' : 'bg-slate-100 text-slate-800'
-                      }`}
-                    >
-                      {t.priority}
-                    </span>
-                    <span className="font-medium text-gray-900">{t.title}</span>
-                    <span className="text-xs text-gray-500">{t.status}</span>
-                    <span className="text-xs text-gray-400">{new Date(t.created_at).toLocaleString()}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <div className="rounded-xl border border-dashed border-gray-300 bg-white/60 p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Staff handoff</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('assign_on_call')}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-900 disabled:opacity-50"
-              >
-                Assign on-call
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('urgent_callback_task')}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
-              >
-                Urgent callback
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('dispatch_review')}
-                className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
-              >
-                Dispatch review
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('escalate_emergency')}
-                className="px-3 py-1.5 rounded-lg bg-red-700 text-white text-xs font-medium hover:bg-red-800 disabled:opacity-50"
-              >
-                Escalate emergency
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('link_customer_ack')}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-800 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
-              >
-                Ack CRM link
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('mark_resolved')}
-                className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-900 text-xs font-medium hover:bg-emerald-50 disabled:opacity-50"
-              >
-                Mark resolved
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runStaffHandoff('mark_duplicate_no_action')}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
-              >
-                Duplicate / no action
-              </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone={task.priority === 'urgent' ? 'danger' : 'neutral'}>
+                  {humanizeToken(task.priority)}
+                </StatusBadge>
+                <StatusBadge tone={task.status === 'open' ? 'warning' : 'success'}>
+                  {humanizeToken(task.status)}
+                </StatusBadge>
+              </div>
             </div>
           </div>
+        ))}
+      </div>
+    ) : (
+      <EmptyState
+        title="No staff tasks created"
+        description="Escalated office tasks for this call will show here when the workflow needs a human owner."
+        icon={Users}
+      />
+    );
+  })();
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--ops-bg)]">
+      <main className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 xl:px-8">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
+          <AppPageHeader
+            eyebrow="Receptionist / Call Review"
+            icon={Bot}
+            title={(call.caller_name as string) || 'Unknown caller'}
+            description={`${(call.from_phone as string) || 'No callback number'} · ${formatDateTimeLabel(call.started_at as string)}`}
+            actions={
+              <>
+                <Link href="/receptionist" className={opsButtonClass('ghost')}>
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Link>
+                <Link href={`/estimates/new?receptionist_call_id=${encodeURIComponent(id)}`} className={opsButtonClass('primary')}>
+                  <ClipboardList className="h-4 w-4" />
+                  New estimate
+                </Link>
+              </>
+            }
+          >
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone="neutral">{humanizeToken(String(call.provider || 'mock'))}</StatusBadge>
+              <StatusBadge tone="neutral">{humanizeToken(String(call.status || 'unknown'))}</StatusBadge>
+              {disposition ? (
+                <StatusBadge tone={dispositionTone(disposition)}>{humanizeToken(disposition)}</StatusBadge>
+              ) : null}
+              {call.provider_call_id ? <StatusBadge tone="muted" mono>Provider {String(call.provider_call_id)}</StatusBadge> : null}
+              {call.recording_url ? (
+                <a href={String(call.recording_url)} target="_blank" rel="noreferrer" className={opsButtonClass('secondary', 'sm')}>
+                  Open recording
+                </a>
+              ) : null}
+            </div>
+          </AppPageHeader>
 
           {actionMsg ? (
             <div
-              className={`text-sm px-4 py-2 rounded-lg ${actionMsg === 'Saved.' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}
+              className={cn(
+                'rounded-[24px] px-4 py-3 text-sm',
+                actionMsg === 'Saved.'
+                  ? 'border border-[var(--ops-success-soft-border)] bg-[var(--ops-success-soft)] text-[var(--ops-success-ink)]'
+                  : 'border border-[var(--ops-danger-soft-border)] bg-[var(--ops-danger-soft)] text-[var(--ops-danger-ink)]',
+              )}
             >
               {actionMsg}
             </div>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/lead`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-            >
-              <UserPlus className="w-4 h-4" aria-hidden />
-              Create / link lead
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/book-callback`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-300 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <Phone className="w-4 h-4" aria-hidden />
-              Book callback
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/book-quote`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-300 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <Calendar className="w-4 h-4" aria-hidden />
-              Book quote visit
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/emergency`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-            >
-              <AlertTriangle className="w-4 h-4" aria-hidden />
-              Mark emergency
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/spam`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-            >
-              <Ban className="w-4 h-4" aria-hidden />
-              Mark spam
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction(`/api/receptionist/calls/${id}/reprocess`)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-            >
-              <RefreshCw className="w-4 h-4" aria-hidden />
-              Reprocess
-            </button>
-            {isRetell && call.provider_call_id ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void runAction(`/api/receptionist/providers/retell/sync/${id}`)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+            <div className="space-y-6">
+              <ConsolePanel
+                title="Transcript review"
+                description="Use the speaker timeline to verify what the receptionist actually captured before taking action."
               >
-                <RefreshCw className="w-4 h-4" aria-hidden />
-                Sync from Retell
-              </button>
-            ) : null}
-          </div>
+                {transcriptItems.length ? (
+                  <TimelineList items={transcriptItems} />
+                ) : (
+                  <EmptyState
+                    title="Transcript not available"
+                    description="This call does not have segmented transcript lines yet, so only the AI summary is available."
+                    icon={Bot}
+                  />
+                )}
+              </ConsolePanel>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Summary</h2>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                {(call.ai_summary as string) || '—'}
-              </p>
-              <p className="text-sm text-gray-600 mt-4">
-                <span className="font-medium text-gray-900">Recommended next step:</span>{' '}
-                {(call.recommended_next_step as string) || '—'}
-              </p>
+              <ConsolePanel
+                title="Evidence and workflow detail"
+                description="Move between the summary, event trail, tools, bookings, and staff tasks without leaving the review surface."
+              >
+                <div className="mb-5">
+                  <SegmentedFilterBar
+                    value={activeTab}
+                    onChange={(value) => setActiveTab(value as (typeof reviewTabs)[number]['value'])}
+                    options={reviewTabs.map((tab) => ({
+                      value: tab.value,
+                      label: tab.label,
+                      count:
+                        tab.value === 'events'
+                          ? events.length
+                          : tab.value === 'tools'
+                            ? toolInvocations.length
+                            : tab.value === 'bookings'
+                              ? bookings.length
+                              : tab.value === 'staff'
+                                ? staffTasks.length
+                                : undefined,
+                    }))}
+                  />
+                </div>
+                {tabContent}
+              </ConsolePanel>
             </div>
 
-            <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Extracted details</h2>
-              {extracted ? (
-                <dl className="space-y-2 text-sm">
-                  {Object.entries(extracted).map(([k, v]) => (
-                    <div key={k} className="flex gap-2">
-                      <dt className="text-gray-500 w-40 flex-shrink-0">{k}</dt>
-                      <dd className="text-gray-900 break-words">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="text-sm text-gray-500">No extracted data yet.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Transcript</h2>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {segments.length === 0 && !(call.transcript_text as string)?.trim() ? (
-                <p className="text-sm text-gray-500">No transcript yet.</p>
-              ) : null}
-              {segments.length === 0 && (call.transcript_text as string)?.trim() ? (
-                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans">
-                  {String(call.transcript_text)}
-                </pre>
-              ) : null}
-              {segments.length > 0 ? (
-                segments.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`rounded-lg px-3 py-2 text-sm ${
-                      s.speaker === 'assistant' ? 'bg-indigo-50 text-indigo-900' : 'bg-gray-50 text-gray-900'
-                    }`}
-                  >
-                    <span className="text-xs font-semibold uppercase text-gray-500">{s.speaker}</span>
-                    <p className="mt-1">{s.text}</p>
+            <RightRail>
+              <ConsolePanel title="Structured extraction" description="Caller details, issue framing, and visit context stay pinned while you review the transcript.">
+                <div className="space-y-3 text-sm">
+                  <div className="rounded-[20px] border border-[var(--ops-border)] bg-[var(--ops-surface-subtle)] px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Caller</p>
+                    <p className="mt-1 text-[var(--ops-text)]">
+                      {String(extracted?.callerName || call.caller_name || 'Unknown caller')}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-[var(--ops-muted)]">
+                      {String(extracted?.phone || call.from_phone || 'No number')}
+                    </p>
                   </div>
-                ))
-              ) : null}
-            </div>
-          </div>
-
-          {toolInvocations.length > 0 ? (
-            <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Tool invocations (Retell)</h2>
-              <ul className="space-y-3 text-sm">
-                {toolInvocations.map((t) => (
-                  <li key={t.id} className="border-b border-gray-100 pb-3">
-                    <span className="font-medium text-gray-900">{t.tool_name}</span>
-                    <span className="text-gray-400 text-xs ml-2">{t.status}</span>
-                    <span className="text-gray-400 text-xs ml-2">{new Date(t.created_at).toLocaleString()}</span>
-                    {t.request_json ? (
-                      <pre className="text-xs text-gray-500 mt-1 overflow-x-auto max-h-24">{t.request_json}</pre>
+                  <div className="rounded-[20px] border border-[var(--ops-border)] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Issue</p>
+                    <p className="mt-1 text-[var(--ops-text)]">
+                      {String(extracted?.issueDescription || extracted?.issueType || call.lead_issue || call.ai_summary || 'Unknown issue')}
+                    </p>
+                  </div>
+                  <div className="rounded-[20px] border border-[var(--ops-border)] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Service address</p>
+                    <p className="mt-1 text-[var(--ops-text)]">{String(extracted?.address || 'Needs confirmation')}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {extracted?.urgency ? (
+                      <StatusBadge tone={String(extracted.urgency).includes('emergency') ? 'danger' : 'warning'}>
+                        {humanizeToken(String(extracted.urgency))}
+                      </StatusBadge>
                     ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+                    {completeness?.sufficient === false ? (
+                      <StatusBadge tone="warning">Needs missing details</StatusBadge>
+                    ) : (
+                      <StatusBadge tone="success">Capture complete</StatusBadge>
+                    )}
+                  </div>
+                </div>
+              </ConsolePanel>
 
-          <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <Briefcase className="w-5 h-5" aria-hidden />
-              Bookings &amp; links
-            </h2>
-            {call.lead_id ? (
-              <p className="text-sm mb-2">
-                <span className="text-gray-500">Lead:</span>{' '}
-                <Link href="/crm" className="text-indigo-600 font-medium">
-                  {String(call.lead_id)}
-                </Link>{' '}
-                <span className="text-gray-400">(open CRM board)</span>
-              </p>
-            ) : (
-              <p className="text-sm text-gray-500 mb-2">No lead linked.</p>
-            )}
-            {call.job_id ? (
-              <p className="text-sm mb-2">
-                <span className="text-gray-500">Job:</span>{' '}
-                <Link href="/jobs" className="text-indigo-600 font-medium">
-                  {String(call.job_id)}
-                </Link>
-              </p>
-            ) : null}
-            {bookings.length === 0 ? (
-              <p className="text-sm text-gray-500">No receptionist bookings.</p>
-            ) : (
-              <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                {bookings.map((b) => (
-                  <li key={b.id}>
-                    {b.booking_type} — {b.status}
-                    {b.scheduled_start ? ` · ${b.scheduled_start}` : ''}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+              <ConsolePanel title="Safety and quality" description="Keep the operational priority visible while deciding the right human handoff.">
+                <div className="space-y-3 text-sm">
+                  {isEmergency ? (
+                    <div className="rounded-[20px] border border-[var(--ops-danger-soft-border)] bg-[var(--ops-danger-soft)] px-4 py-3 text-[var(--ops-danger-ink)]">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <ShieldAlert className="h-4 w-4" />
+                        Emergency flagged
+                      </div>
+                      <p className="mt-2 leading-6">
+                        Prioritize on-call dispatch and confirm safety steps before anything else.
+                      </p>
+                    </div>
+                  ) : null}
+                  {callMeta?.callerBehavior === 'abusive_but_legitimate' ? (
+                    <div className="rounded-[20px] border border-[var(--ops-warning-soft-border)] bg-[var(--ops-warning-soft)] px-4 py-3 text-[var(--ops-warning-ink)]">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <Ban className="h-4 w-4" />
+                        Abusive but legitimate caller
+                      </div>
+                      <p className="mt-2 leading-6">Keep the handoff crisp and human. The plumbing issue still needs attention.</p>
+                    </div>
+                  ) : null}
+                  {completeness ? (
+                    <div className="rounded-[20px] border border-[var(--ops-border)] bg-white px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ops-muted)]">Data completeness</p>
+                      <p className="mt-1 text-[var(--ops-text)]">
+                        {completeness.sufficient ? 'Critical fields are present.' : 'Critical fields are missing.'}
+                      </p>
+                      {!completeness.sufficient && Array.isArray(completeness.missingLabels) ? (
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--ops-warning-ink)]">
+                          {completeness.missingLabels.map((label) => (
+                            <li key={label}>{label}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </ConsolePanel>
 
-          <div className="bg-white/90 rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Event timeline</h2>
-            <ul className="space-y-2 text-sm">
-              {events.length === 0 ? (
-                <li className="text-gray-500">No events.</li>
-              ) : (
-                events.map((ev) => (
-                  <li key={ev.id} className="border-b border-gray-100 pb-2">
-                    <span className="font-medium text-gray-900">{ev.event_type}</span>
-                    {ev.source ? (
-                      <span className="text-gray-500 text-xs ml-2">({ev.source})</span>
-                    ) : null}
-                    <span className="text-gray-400 text-xs ml-2">{new Date(ev.created_at).toLocaleString()}</span>
-                    {ev.payload_json ? (
-                      <pre className="text-xs text-gray-500 mt-1 overflow-x-auto">{ev.payload_json}</pre>
-                    ) : null}
-                  </li>
-                ))
-              )}
-            </ul>
+              <ConsolePanel title="Action rail" description="All high-signal office actions stay sticky so you can operate directly from the review workstation.">
+                <div className="grid gap-2">
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/lead`)} variant="primary">
+                    <UserPlus className="h-4 w-4" />
+                    Create or link lead
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/book-callback`)} variant="secondary">
+                    <Phone className="h-4 w-4" />
+                    Book callback
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/book-quote`)} variant="secondary">
+                    <Calendar className="h-4 w-4" />
+                    Book quote visit
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/emergency`)} variant="danger">
+                    <AlertTriangle className="h-4 w-4" />
+                    Mark emergency
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/spam`)} variant="warning">
+                    <Ban className="h-4 w-4" />
+                    Mark spam
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runAction(`/api/receptionist/calls/${id}/reprocess`)} variant="ghost">
+                    <RefreshCw className="h-4 w-4" />
+                    Reprocess
+                  </OpsButton>
+                  {isRetell && call.provider_call_id ? (
+                    <OpsButton
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void runAction(`/api/receptionist/providers/retell/sync/${id}`)}
+                      variant="ghost"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Sync from Retell
+                    </OpsButton>
+                  ) : null}
+                </div>
+              </ConsolePanel>
+
+              <ConsolePanel title="Staff handoff" description="Escalate or resolve office workflow states without bouncing out to a separate admin surface.">
+                <div className="grid gap-2">
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('assign_on_call')} variant="secondary">
+                    Assign on-call
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('urgent_callback_task')} variant="warning">
+                    Urgent callback
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('dispatch_review')} variant="secondary">
+                    Dispatch review
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('escalate_emergency')} variant="danger">
+                    Escalate emergency
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('link_customer_ack')} variant="ghost">
+                    Ack CRM link
+                  </OpsButton>
+                  <OpsButton type="button" disabled={busy} onClick={() => void runStaffHandoff('mark_resolved')} variant="secondary">
+                    Mark resolved
+                  </OpsButton>
+                </div>
+              </ConsolePanel>
+            </RightRail>
           </div>
         </div>
       </main>

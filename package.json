@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:init": "node scripts/init-sqlite.cjs",
+    "db:seed:demo": "python scripts/seed_demo_data.py",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:copy": "tsx scripts/migrate-sqlite-to-postgres.ts",

@@ -42,7 +42,7 @@ export async function GET(
       LIMIT 50
     `,
     sql`
-      SELECT id, description, status, scheduled_at, service_type
+      SELECT id, description, status, scheduled_at, type AS service_type
       FROM jobs
       WHERE customer_id = ${customerId} AND company_id = ${companyId}
       ORDER BY datetime(created_at) DESC

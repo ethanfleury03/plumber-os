@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { SessionUser } from '@/lib/auth/types';
 import clsx from 'clsx';
+import { cn } from '@/lib/ops';
 
 const CRM_LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/crm', label: 'Board', icon: LayoutGrid },
@@ -82,9 +83,12 @@ function isCrmSectionPath(pathname: string) {
 type AppSidebarProps = {
   /** Rendered above the user profile card (e.g. Calls AI status). */
   beforeUserCard?: ReactNode;
+  mobile?: boolean;
+  onNavigate?: () => void;
+  onClose?: () => void;
 };
 
-export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
+export function AppSidebar({ beforeUserCard, mobile = false, onNavigate, onClose }: AppSidebarProps) {
   const pathname = usePathname() || '';
   const crmSectionActive = isCrmSectionPath(pathname);
   const [crmOpenOverride, setCrmOpenOverride] = useState<boolean | null>(null);
@@ -100,21 +104,65 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
   }, []);
 
   const crmOpen = crmOpenOverride ?? crmSectionActive;
+  const navLinkClass = (active: boolean) =>
+    clsx(
+      'sidebar-item flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm',
+      active ? 'active text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'text-slate-300 hover:text-white',
+    );
+
+  const handleNavigate = () => {
+    onNavigate?.();
+  };
 
   return (
-    <aside className="sidebar w-56 text-white flex flex-col flex-shrink-0">
-      <div className="p-5 relative z-10">
-        <Link href="/app" className="flex items-center gap-3">
-          <div className="sidebar-logo w-10 h-10 rounded-xl flex items-center justify-center shadow-lg">
-            <span className="text-lg font-bold">P</span>
+    <aside
+      className={cn(
+        'sidebar flex min-h-0 w-[18rem] flex-col text-white',
+        mobile ? 'h-full max-h-full' : 'h-screen max-h-screen shrink-0',
+      )}
+    >
+      <div className="relative z-10 border-b border-white/10 px-5 py-5">
+        <div className="mb-4 flex items-center justify-between">
+          <Link href="/app" className="flex items-center gap-3" onClick={handleNavigate}>
+            <div className="sidebar-logo flex h-11 w-11 items-center justify-center rounded-2xl shadow-lg">
+              <span className="text-lg font-bold">P</span>
+            </div>
+            <div>
+              <span className="block text-xl font-semibold tracking-[-0.03em] text-white">PlumberOS</span>
+              <span className="block text-[11px] uppercase tracking-[0.22em] text-slate-400">Ops Console</span>
+            </div>
+          </Link>
+          {mobile ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 text-slate-300 transition-colors hover:bg-white/6 hover:text-white"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+
+        <div className="rounded-[24px] border border-white/10 bg-white/6 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Workspace</p>
+              <p className="mt-1 text-sm font-semibold text-white">Field operations</p>
+            </div>
+            <div className="rounded-full bg-emerald-400/16 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+              Live
+            </div>
           </div>
-          <span className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-            PlumberOS
-          </span>
-        </Link>
+          <p className="mt-2 text-xs leading-5 text-slate-300">
+            Dispatch, quotes, and receptionist workflows in one shared control surface.
+          </p>
+        </div>
       </div>
 
-      <nav className="flex-1 px-3 pb-2 relative z-10 overflow-y-auto">
+      <nav className="relative z-10 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="mb-3">
+          <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Overview</p>
+        </div>
         {PRIMARY_NAV_ITEMS.slice(0, 1).map((item) => {
           const Icon = item.icon;
           const active = navItemIsActive(pathname, item.href);
@@ -122,10 +170,8 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={clsx(
-                'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 mb-0.5 text-sm',
-                active ? 'active text-white' : 'text-slate-300 hover:text-white'
-              )}
+              onClick={handleNavigate}
+              className={navLinkClass(active)}
             >
               <Icon className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
               <span className="font-medium leading-none">{item.label}</span>
@@ -133,9 +179,10 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
           );
         })}
 
-        <div className="my-2 border-t border-white/10" aria-hidden />
+        <div className="my-4 border-t border-white/10" aria-hidden />
 
-        <div className="mb-1">
+        <div className="mb-4">
+          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">CRM</p>
           <button
             type="button"
             onClick={() =>
@@ -146,10 +193,7 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
               })
             }
             aria-expanded={crmOpen}
-            className={clsx(
-              'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left',
-              crmSectionActive ? 'active text-white' : 'text-slate-300 hover:text-white'
-            )}
+            className={navLinkClass(crmSectionActive)}
           >
             <Target className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
             <span className="font-medium leading-none flex-1">CRM</span>
@@ -161,7 +205,7 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
           </button>
 
           {crmOpen ? (
-            <div className="mt-1 ml-3 pl-3 border-l border-white/15 space-y-0.5">
+            <div className="mt-2 ml-3 space-y-1 border-l border-white/12 pl-3">
               {CRM_LINKS.map((sub) => {
                 const SubIcon = sub.icon;
                 const active =
@@ -172,10 +216,11 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
                   <Link
                     key={sub.href}
                     href={sub.href}
+                    onClick={handleNavigate}
                     className={clsx(
-                      'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors',
+                      'flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] transition-colors',
                       active
-                        ? 'bg-white/12 text-white font-medium'
+                        ? 'bg-white/10 text-white font-medium'
                         : 'text-slate-400 hover:bg-white/6 hover:text-white'
                     )}
                   >
@@ -188,7 +233,9 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
           ) : null}
         </div>
 
-        <div className="my-2 border-t border-white/10" aria-hidden />
+        <div className="mb-3">
+          <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Operations</p>
+        </div>
 
         {PRIMARY_NAV_ITEMS.slice(1).map((item) => {
           const Icon = item.icon;
@@ -197,10 +244,8 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={clsx(
-                'sidebar-item w-full flex items-center gap-3 px-4 py-2.5 mb-0.5 text-sm',
-                active ? 'active text-white' : 'text-slate-300 hover:text-white'
-              )}
+              onClick={handleNavigate}
+              className={navLinkClass(active)}
             >
               <Icon className="w-[18px] h-[18px] flex-shrink-0 opacity-90" strokeWidth={1.75} aria-hidden />
               <span className="font-medium leading-none">{item.label}</span>
@@ -211,19 +256,19 @@ export function AppSidebar({ beforeUserCard }: AppSidebarProps) {
 
       <div className="mt-auto relative z-10">
         {beforeUserCard ? (
-          <div className="px-4 pt-4 border-t border-gray-700/50">{beforeUserCard}</div>
+          <div className="border-t border-white/10 px-4 pt-4">{beforeUserCard}</div>
         ) : null}
 
-        <div className="p-4 border-t border-gray-700/50">
-          <div className="flex items-center gap-3 p-2 rounded-xl bg-white/5 group">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-sm font-bold shadow-lg shrink-0">
+        <div className="border-t border-white/10 p-4">
+          <div className="group flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/6 p-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#4a7eff,#255cf3)] text-sm font-bold shadow-lg">
               {user?.avatarInitials ?? '??'}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate">{user?.name || user?.email || '—'}</p>
-              <p className="text-xs text-gray-400 capitalize">{user?.role ?? ''}</p>
+              <p className="truncate text-sm font-semibold text-white">{user?.name || user?.email || '—'}</p>
+              <p className="mt-0.5 text-xs capitalize text-slate-400">{user?.role ?? 'dispatcher'}</p>
             </div>
-            <ClerkSignOutIconButton className="shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition opacity-0 group-hover:opacity-100" />
+            <ClerkSignOutIconButton className="shrink-0 rounded-xl p-2 text-slate-500 opacity-0 transition hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100" />
           </div>
         </div>
       </div>

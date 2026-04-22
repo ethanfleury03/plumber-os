@@ -66,12 +66,18 @@ const IMAGE_META: Record<
 };
 
 let resolvedCache: Record<LandingImageSlot, string> | null = null;
+const INCOMPLETE_SLOTS = new Set<LandingImageSlot>(['receptionist']);
 
 function resolveAll(): Record<LandingImageSlot, string> {
   if (resolvedCache) return resolvedCache;
   const publicDir = path.join(process.cwd(), 'public', 'landing');
   const out = {} as Record<LandingImageSlot, string>;
   (Object.keys(IMAGE_META) as LandingImageSlot[]).forEach((slot) => {
+    if (INCOMPLETE_SLOTS.has(slot)) {
+      out[slot] = `/landing/${slot}.svg`;
+      return;
+    }
+
     const jpg = path.join(publicDir, `${slot}.jpg`);
     const png = path.join(publicDir, `${slot}.png`);
     try {

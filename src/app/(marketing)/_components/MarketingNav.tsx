@@ -74,7 +74,7 @@ export function MarketingNav() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2.5 text-white">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand-orange-500)] to-[var(--brand-orange-600)] text-white shadow-[0_10px_30px_-10px_rgba(242,106,31,0.7)]">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--brand-blue-500)] to-[var(--brand-blue-600)] text-white shadow-[0_14px_32px_-16px_rgba(37,76,137,0.72)]">
               <Wrench className="h-5 w-5" />
             </span>
             <span className="text-lg font-bold tracking-tight">PlumberOS</span>
@@ -85,7 +85,7 @@ export function MarketingNav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className="text-sm font-medium text-white/70 hover:text-white transition-colors"
+                className="text-sm font-medium text-white/68 hover:text-white transition-colors"
               >
                 {l.label}
               </Link>
@@ -135,7 +135,7 @@ export function MarketingNav() {
         <div
           id="marketing-mobile-nav"
           ref={menuRef}
-          className="md:hidden border-t border-white/10 bg-[var(--brand-navy-900)]"
+          className="md:hidden border-t border-white/10 bg-[rgba(8,17,29,0.96)] backdrop-blur-xl"
         >
           <div className="px-6 py-4 space-y-3">
             {NAV_LINKS.map((l) => (
