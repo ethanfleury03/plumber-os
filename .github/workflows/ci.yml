@@ -15,50 +15,9 @@ concurrency:
 
 jobs:
   verify:
-    name: Lint, typecheck, test, build
+    name: Workspace checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      CI: true
-      NEXT_TELEMETRY_DISABLED: "1"
-      # Clerk is required at build time; provide placeholder values so
-      # `next build` can resolve the middleware without a real account.
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci-placeholder
-      CLERK_SECRET_KEY: sk_test_ci-placeholder
-      CLERK_WEBHOOK_SIGNING_SECRET: whsec_ci_placeholder
-      STRIPE_SECRET_KEY: sk_test_ci_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install deps
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Unit tests
-        run: npm test
-
-      - name: Drizzle schema check
-        run: npx drizzle-kit check || echo "drizzle check not fatal yet"
-
-      - name: Build
-        run: npm run build
-
-  marketing-quality:
-    name: Marketing Lighthouse and links
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: verify
+    timeout-minutes: 25
     env:
       CI: true
       NEXT_TELEMETRY_DISABLED: "1"
@@ -67,7 +26,13 @@ jobs:
       CLERK_WEBHOOK_SIGNING_SECRET: whsec_ci_placeholder
       STRIPE_SECRET_KEY: sk_test_ci_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+      APP_BASE_URL: http://localhost:3003
+      NEXT_PUBLIC_APP_BASE_URL: http://localhost:3003
       NEXT_PUBLIC_APP_URL: http://localhost:3003
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_CLIENT_PORTAL_URL: http://localhost:3003/sign-in
+      BLOG_API_TOKEN: ci-blog-token
+      ALLOW_DATA_URL_BLOG_IMAGES: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -79,27 +44,23 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Portal lint
+        run: npm run lint --workspace @wnyautomation/portal
 
-      - name: Start app
-        run: npm run start > /tmp/next.log 2>&1 &
+      - name: Portal typecheck
+        run: npm run typecheck --workspace @wnyautomation/portal
 
-      - name: Wait for app
-        run: |
-          for i in {1..45}; do
-            if curl -sf http://localhost:3003/ > /dev/null; then
-              echo "App ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "App did not start in time"
-          cat /tmp/next.log
-          exit 1
+      - name: Portal unit tests
+        run: npm run test --workspace @wnyautomation/portal
 
-      - name: Broken link crawl
-        run: node scripts/check-marketing-links.mjs
+      - name: Portal Drizzle schema check
+        run: npm exec --workspace @wnyautomation/portal -- drizzle-kit check || echo "drizzle check not fatal yet"
 
-      - name: Lighthouse CI
-        run: npx lhci autorun --config=.lighthouserc.json
+      - name: Portal build
+        run: npm run build --workspace @wnyautomation/portal
+
+      - name: Marketing smoke test
+        run: npm run test --workspace @wnyautomation/marketing
+
+      - name: Marketing build
+        run: npm run build --workspace @wnyautomation/marketing

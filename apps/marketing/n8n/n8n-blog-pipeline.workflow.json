@@ -1,0 +1,437 @@
+{
+  "name": "WNY Automation Co Simple Blog Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1100,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                3,
+                5
+              ],
+              "triggerAtHour": 12,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger - MWF Noon",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const TIME_ZONE = \"America/New_York\";\nconst input = $input.first()?.json || {};\nconst overrideTodayIso = input.override_today_iso || \"\";\nconst now = new Date();\n\nfunction isoDateInTimezone(date, timeZone) {\n  const parts = new Intl.DateTimeFormat(\"en-US\", {\n    timeZone,\n    year: \"numeric\",\n    month: \"2-digit\",\n    day: \"2-digit\",\n  }).formatToParts(date);\n\n  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));\n  return `${byType.year}-${byType.month}-${byType.day}`;\n}\n\nconst todayIso = overrideTodayIso || isoDateInTimezone(now, TIME_ZONE);\n\nreturn [\n  {\n    json: {\n      today_iso: todayIso,\n      run_id: `blog-${todayIso}-${now.getTime()}`,\n      timezone: TIME_ZONE,\n    },\n  },\n];"
+      },
+      "id": "set-today",
+      "name": "Set Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -860,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1QGYmKLTQL_f4zgpBi6caRurOiq69G1LFC1tUKgPSbk0",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Blog Schedule",
+          "mode": "name"
+        },
+        "options": {
+          "range": "A2:T"
+        }
+      },
+      "id": "pull-blog-schedule",
+      "name": "Google Sheets - Pull Blog Schedule",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -620,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $(\"Set Today\").first().json;\nconst targetIso = context.today_iso;\n\nfunction clean(value) {\n  return String(value || \"\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nfunction getField(row, fieldName) {\n  if (row[fieldName] !== undefined) return row[fieldName];\n\n  const normalizedFieldName = clean(fieldName).toLowerCase();\n  const match = Object.entries(row).find(([key]) => clean(key).toLowerCase() === normalizedFieldName);\n  if (match) return match[1];\n\n  const fallbackColumns = {\n    \"Publish Date\": \"col_2\",\n    \"Day\": \"col_3\",\n    \"Wk\": \"col_4\",\n    \"Industry\": \"col_5\",\n    \"Funnel Stage\": \"col_6\",\n    \"Post Title\": \"col_7\",\n    \"Content Type\": \"col_8\",\n    \"Target Word Count\": \"col_9\",\n    \"Primary Keyword\": \"col_10\",\n    \"Secondary Keywords (2-3)\": \"col_11\",\n    \"LSI Keywords (4-6)\": \"col_12\",\n    \"Search Intent\": \"col_13\",\n    \"Pain Point\": \"col_14\",\n    \"How AI Fixes It\": \"col_15\",\n    \"Content Brief Outline (H2 Structure)\": \"col_16\",\n    \"Recommended CTA\": \"col_17\",\n    \"Meta Title (<60 chars)\": \"col_18\",\n    \"Meta Description (<160 chars)\": \"col_19\",\n    \"Research / Source URL\": \"col_20\",\n  };\n\n  if (fieldName === \"#\") {\n    const firstDataKey = Object.keys(row).find((key) => key !== \"row_number\" && !/^col_\\d+$/i.test(key));\n    return firstDataKey ? row[firstDataKey] : \"\";\n  }\n\n  const fallbackKey = fallbackColumns[fieldName];\n  return fallbackKey && row[fallbackKey] !== undefined ? row[fallbackKey] : \"\";\n}\n\nfunction parseSheetDate(value) {\n  if (value === null || value === undefined || value === \"\") return \"\";\n\n  if (typeof value === \"number\") {\n    const excelEpoch = Date.UTC(1899, 11, 30);\n    return new Date(excelEpoch + value * 86400000).toISOString().slice(0, 10);\n  }\n\n  const text = String(value).trim();\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) return text;\n\n  const parsed = new Date(text);\n  if (Number.isNaN(parsed.getTime())) return \"\";\n\n  return parsed.toISOString().slice(0, 10);\n}\n\nconst rows = $input.all().filter((item) => {\n  const publishDate = getField(item.json, \"Publish Date\");\n  return publishDate && clean(publishDate).toLowerCase() !== \"publish date\";\n});\n\nconst match = rows.find((item) => {\n  const publishDate = getField(item.json, \"Publish Date\");\n  return parseSheetDate(publishDate) === targetIso;\n});\n\nif (!match) {\n  return [];\n}\n\nconst row = match.json;\n\nreturn [\n  {\n    json: {\n      ...context,\n      blog_number: getField(row, \"#\"),\n      publish_date: getField(row, \"Publish Date\"),\n      industry: getField(row, \"Industry\"),\n      funnel_stage: getField(row, \"Funnel Stage\"),\n      post_title: getField(row, \"Post Title\"),\n      content_type: getField(row, \"Content Type\"),\n      target_word_count: getField(row, \"Target Word Count\"),\n      primary_keyword: getField(row, \"Primary Keyword\"),\n      secondary_keywords: getField(row, \"Secondary Keywords (2-3)\"),\n      lsi_keywords: getField(row, \"LSI Keywords (4-6)\"),\n      search_intent: getField(row, \"Search Intent\"),\n      pain_point: getField(row, \"Pain Point\"),\n      how_ai_fixes_it: getField(row, \"How AI Fixes It\"),\n      outline: getField(row, \"Content Brief Outline (H2 Structure)\"),\n      cta: getField(row, \"Recommended CTA\"),\n      meta_title: getField(row, \"Meta Title (<60 chars)\"),\n      meta_description: getField(row, \"Meta Description (<160 chars)\"),\n      source_url: getField(row, \"Research / Source URL\"),\n    },\n  },\n];"
+      },
+      "id": "pick-todays-row",
+      "name": "Pick Today's Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $(\"Pick Today's Row\").first().json;\nconst response = $input.first()?.json || {};\n\nconst PLANNING_SECTION_TITLES = [\n  \"Entity Signals\",\n  \"Suggested Internal Links\",\n  \"Internal Link Suggestions\",\n  \"SEO Notes\",\n  \"Editorial Notes\",\n  \"Implementation Notes\",\n  \"External Source Note\",\n  \"FAQ Schema\",\n  \"Schema Markup\",\n];\n\nfunction stripFence(value) {\n  return String(value || \"\")\n    .trim()\n    .replace(/^```(?:json|html|markdown)?/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n}\n\nfunction slugify(value) {\n  return String(value || \"\")\n    .toLowerCase()\n    .replace(/&/g, \" and \")\n    .replace(/[^a-z0-9]+/g, \"-\")\n    .replace(/^-+|-+$/g, \"\")\n    .slice(0, 80);\n}\n\nfunction escapeHtml(value) {\n  return String(value || \"\")\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#39;\");\n}\n\nfunction escapeAttribute(value) {\n  return escapeHtml(value).replace(/`/g, \"&#96;\");\n}\n\nfunction planningTitlePattern() {\n  return PLANNING_SECTION_TITLES.map((title) => title.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\")).join(\"|\");\n}\n\nfunction stripPlanningSections(value) {\n  let text = String(value || \"\").trim();\n  if (!text) return \"\";\n\n  const titles = planningTitlePattern();\n  const htmlHeading = new RegExp(`\\\\s*<h[1-6][^>]*>\\\\s*(?:${titles})\\\\s*<\\\\/h[1-6]>[\\\\s\\\\S]*$`, \"i\");\n  const plainHeading = new RegExp(`(?:^|\\\\n)\\\\s*(?:#{1,6}\\\\s*)?(?:${titles})\\\\s*:?[\\\\s\\\\S]*$`, \"i\");\n\n  text = text.replace(htmlHeading, \"\").replace(plainHeading, \"\");\n  return text.replace(/<hr\\s*\\/?>\\s*$/i, \"\").trim();\n}\n\nfunction inlineMarkdownToHtml(value) {\n  return escapeHtml(value)\n    .replace(/\\*\\*([^*]+)\\*\\*/g, \"<strong>$1</strong>\")\n    .replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+|\\/[^)\\s]+|#[^)\\s]+)\\)/g, (_match, label, href) => {\n      return `<a href=\"${escapeAttribute(href)}\">${label}</a>`;\n    });\n}\n\nfunction cleanHtmlMarkdownArtifacts(value) {\n  return stripPlanningSections(value)\n    .replace(/\\*\\*([^*<>]+)\\*\\*/g, \"<strong>$1</strong>\")\n    .replace(/\\[([^\\]<]+)\\]\\((https?:\\/\\/[^)\\s]+|\\/[^)\\s]+|#[^)\\s]+)\\)/g, (_match, label, href) => {\n      return `<a href=\"${escapeAttribute(href)}\">${label}</a>`;\n    })\n    .trim();\n}\n\nfunction markdownToHtml(markdown) {\n  const lines = stripPlanningSections(markdown).split(/\\r?\\n/);\n  const html = [];\n  let inList = false;\n  let listTag = \"ul\";\n\n  function closeList() {\n    if (inList) {\n      html.push(`</${listTag}>`);\n      inList = false;\n    }\n  }\n\n  for (const rawLine of lines) {\n    const line = rawLine.trim();\n\n    if (!line) {\n      closeList();\n      continue;\n    }\n\n    if (line.startsWith(\"### \")) {\n      closeList();\n      html.push(`<h3>${inlineMarkdownToHtml(line.slice(4))}</h3>`);\n    } else if (line.startsWith(\"## \")) {\n      closeList();\n      html.push(`<h2>${inlineMarkdownToHtml(line.slice(3))}</h2>`);\n    } else if (line.startsWith(\"# \")) {\n      closeList();\n      html.push(`<h1>${inlineMarkdownToHtml(line.slice(2))}</h1>`);\n    } else if (/^[-*]\\s+/.test(line)) {\n      if (!inList || listTag !== \"ul\") {\n        closeList();\n        listTag = \"ul\";\n        html.push(\"<ul>\");\n        inList = true;\n      }\n      html.push(`<li>${inlineMarkdownToHtml(line.replace(/^[-*]\\s+/, \"\"))}</li>`);\n    } else if (/^\\d+\\.\\s+/.test(line)) {\n      if (!inList || listTag !== \"ol\") {\n        closeList();\n        listTag = \"ol\";\n        html.push(\"<ol>\");\n        inList = true;\n      }\n      html.push(`<li>${inlineMarkdownToHtml(line.replace(/^\\d+\\.\\s+/, \"\"))}</li>`);\n    } else {\n      closeList();\n      html.push(`<p>${inlineMarkdownToHtml(line)}</p>`);\n    }\n  }\n\n  closeList();\n  return html.join(\"\\n\");\n}\n\nfunction normalizeJsonLd(value) {\n  if (!value) return \"\";\n\n  if (typeof value === \"object\") {\n    return JSON.stringify(value);\n  }\n\n  const text = stripFence(value);\n  if (!text) return \"\";\n\n  try {\n    return JSON.stringify(JSON.parse(text));\n  } catch (error) {\n    return \"\";\n  }\n}\n\nconst content =\n  response.choices?.[0]?.message?.content ||\n  response.message?.content ||\n  response.content ||\n  response.text ||\n  \"\";\n\nfunction parseTaggedOutput(value) {\n  const text = String(value || \"\");\n  const fields = [\n    \"generated_title\",\n    \"slug\",\n    \"meta_title\",\n    \"meta_description\",\n    \"excerpt\",\n    \"image_prompt\",\n    \"image_alt\",\n    \"alt_text\",\n    \"caption\",\n    \"faq_schema_json\",\n    \"blog_markdown\",\n    \"blog_html\",\n  ];\n\n  const output = {};\n\n  for (const field of fields) {\n    const pattern = new RegExp(`<${field}>\\\\s*([\\\\s\\\\S]*?)\\\\s*<\\\\/${field}>`, \"i\");\n    const match = text.match(pattern);\n    output[field] = match ? match[1].trim() : \"\";\n  }\n\n  if (!output.generated_title && !output.blog_markdown && !output.blog_html) {\n    throw new Error(\"Could not parse Blog Creation output as structured fields, JSON, or tagged text.\");\n  }\n\n  return output;\n}\n\nlet blog;\n\nif (response.generated_title || response.blog_markdown || response.blog_html) {\n  blog = response;\n} else if (typeof content === \"object\" && content !== null) {\n  blog = content;\n} else {\n  const cleaned = stripFence(content);\n  try {\n    blog = JSON.parse(cleaned);\n  } catch (error) {\n    blog = parseTaggedOutput(cleaned);\n  }\n}\n\nconst title = blog.generated_title || blog.title || source.post_title;\nconst slug = slugify(blog.slug || title);\nconst blogMarkdown = stripPlanningSections(blog.blog_markdown || blog.markdown || \"\");\nconst rawBlogHtml = blog.blog_html || blog.html || \"\";\nconst blogHtml = cleanHtmlMarkdownArtifacts(rawBlogHtml || markdownToHtml(blogMarkdown));\nconst imageAlt = blog.image_alt || blog.alt_text || blog.image_alt_text || \"\";\n\nif (!String(blogMarkdown || \"\").trim() && !String(blogHtml || \"\").trim()) {\n  throw new Error(\"Blog Creation produced title/meta data but no blog_markdown or blog_html body.\");\n}\n\nreturn [\n  {\n    json: {\n      ...source,\n      generated_title: title,\n      slug,\n      meta_title: blog.meta_title || source.meta_title,\n      meta_description: blog.meta_description || source.meta_description,\n      excerpt: blog.excerpt || \"\",\n      blog_markdown: blogMarkdown,\n      blog_html: blogHtml,\n      image_prompt: blog.image_prompt || \"\",\n      image_alt: imageAlt,\n      alt_text: imageAlt,\n      caption: blog.caption || blog.excerpt || \"\",\n      faq_schema_json: normalizeJsonLd(blog.faq_schema_json || blog.faq_schema),\n      image_file_name: `${slug}-hero.png`,\n    },\n  },\n];"
+      },
+      "id": "parse-blog-json",
+      "name": "Parse Blog JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replace this node with your existing OpenRouter image JS.\n// Input prompt: $json.image_prompt\n// Return either binary.blogImage or json.imageDataUrl.\nthrow new Error(\"Paste your OpenRouter image JS into this node before running the full workflow.\");"
+      },
+      "id": "js-image-generation",
+      "name": "JS Image Generation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const blog = $(\"Parse Blog JSON\").first().json;\nconst imageItem = $input.first() || { json: {}, binary: {} };\nconst imageJson = imageItem.json || {};\nconst imageBinary = imageItem.binary || {};\nconst imageDataUrl =\n  imageJson.imageDataUrl ||\n  imageJson.image_data_url ||\n  imageJson.dataUrl ||\n  imageJson.data_url ||\n  \"\";\n\nfunction escapeHtml(value) {\n  return String(value || \"\")\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\");\n}\n\nfunction escapeScriptJson(value) {\n  return String(value || \"\")\n    .replace(/</g, \"\\\\u003c\")\n    .replace(/>/g, \"\\\\u003e\")\n    .replace(/&/g, \"\\\\u0026\")\n    .replace(/\\u2028/g, \"\\\\u2028\")\n    .replace(/\\u2029/g, \"\\\\u2029\");\n}\n\nfunction safeFileName(value) {\n  return (\n    String(value || \"wny-automation-blog\")\n      .toLowerCase()\n      .replace(/&/g, \" and \")\n      .replace(/[^a-z0-9]+/g, \"-\")\n      .replace(/^-+|-+$/g, \"\")\n      .slice(0, 80) || \"wny-automation-blog\"\n  );\n}\n\nfunction inlineMarkdownToHtml(value) {\n  return escapeHtml(value)\n    .replace(/\\*\\*([^*]+)\\*\\*/g, \"<strong>$1</strong>\")\n    .replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+|\\/[^)\\s]+|#[^)\\s]+)\\)/g, (_match, label, href) => {\n      return `<a href=\"${escapeHtml(href)}\">${label}</a>`;\n    });\n}\n\nfunction markdownToHtml(markdown) {\n  const lines = String(markdown || \"\").split(/\\r?\\n/);\n  const html = [];\n  let inList = false;\n  let listTag = \"ul\";\n\n  function closeList() {\n    if (inList) {\n      html.push(`</${listTag}>`);\n      inList = false;\n    }\n  }\n\n  for (const rawLine of lines) {\n    const line = rawLine.trim();\n\n    if (!line) {\n      closeList();\n      continue;\n    }\n\n    if (line.startsWith(\"### \")) {\n      closeList();\n      html.push(`<h3>${inlineMarkdownToHtml(line.slice(4))}</h3>`);\n    } else if (line.startsWith(\"## \")) {\n      closeList();\n      html.push(`<h2>${inlineMarkdownToHtml(line.slice(3))}</h2>`);\n    } else if (line.startsWith(\"# \")) {\n      closeList();\n      html.push(`<h1>${inlineMarkdownToHtml(line.slice(2))}</h1>`);\n    } else if (/^[-*]\\s+/.test(line)) {\n      if (!inList || listTag !== \"ul\") {\n        closeList();\n        listTag = \"ul\";\n        html.push(\"<ul>\");\n        inList = true;\n      }\n      html.push(`<li>${inlineMarkdownToHtml(line.replace(/^[-*]\\s+/, \"\"))}</li>`);\n    } else if (/^\\d+\\.\\s+/.test(line)) {\n      if (!inList || listTag !== \"ol\") {\n        closeList();\n        listTag = \"ol\";\n        html.push(\"<ol>\");\n        inList = true;\n      }\n      html.push(`<li>${inlineMarkdownToHtml(line.replace(/^\\d+\\.\\s+/, \"\"))}</li>`);\n    } else {\n      closeList();\n      html.push(`<p>${inlineMarkdownToHtml(line)}</p>`);\n    }\n  }\n\n  closeList();\n  return html.join(\"\\n\");\n}\n\nfunction normalizeJsonLd(value) {\n  if (!value) return \"\";\n  if (typeof value === \"object\") return JSON.stringify(value);\n\n  try {\n    return JSON.stringify(JSON.parse(String(value)));\n  } catch (error) {\n    return \"\";\n  }\n}\n\nif (!imageBinary.blogImage) {\n  const match = String(imageDataUrl).match(/^data:([^;]+);base64,(.+)$/);\n\n  if (match) {\n    imageBinary.blogImage = {\n      data: match[2],\n      mimeType: match[1],\n      fileName: blog.image_file_name,\n    };\n  }\n}\n\nif (!imageBinary.blogImage) {\n  throw new Error(\"Image node must return binary.blogImage or a base64 data URL named imageDataUrl.\");\n}\n\nconst title = blog.generated_title || blog.post_title || \"Untitled Blog\";\nconst publishDate = blog.publish_date || blog.today_iso || \"the scheduled date\";\nconst slug = safeFileName(blog.slug || title);\nconst bodyHtml = String(blog.blog_html || \"\").trim() || markdownToHtml(blog.blog_markdown);\nconst faqSchemaJson = normalizeJsonLd(blog.faq_schema_json || blog.faq_schema);\nconst schemaScript = faqSchemaJson\n  ? `\\n  <script type=\"application/ld+json\">${escapeScriptJson(faqSchemaJson)}</script>`\n  : \"\";\n\nif (!String(bodyHtml || \"\").trim()) {\n  throw new Error(\"Cannot create blog HTML attachment because blog_html and blog_markdown are both empty.\");\n}\n\nconst emailHtml = [\n  \"Hello Ethan,<br><br>\",\n  `Here is your blog for ${escapeHtml(publishDate)} about ${escapeHtml(title)}. Attached are the publish-ready HTML and image.<br><br>`,\n  `<strong>Slug:</strong> ${escapeHtml(slug)}<br>`,\n  `<strong>Meta title:</strong> ${escapeHtml(blog.meta_title || title)}<br>`,\n  `<strong>Meta description:</strong> ${escapeHtml(blog.meta_description || blog.excerpt || \"\")}<br>`,\n  `<strong>Image alt:</strong> ${escapeHtml(blog.image_alt || blog.alt_text || \"\")}<br>`,\n  `<strong>FAQ schema:</strong> ${faqSchemaJson ? \"Included\" : \"Not included\"}<br><br>`,\n  \"Best,<br>Blogger.\",\n].join(\"\");\n\nconst blogDocumentHtml = `<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>${escapeHtml(blog.meta_title || title)}</title>\n  <meta name=\"description\" content=\"${escapeHtml(blog.meta_description || blog.excerpt || \"\")}\">${schemaScript}\n</head>\n<body>\n${bodyHtml}\n</body>\n</html>`;\n\nimageBinary.blogHtml = {\n  data: Buffer.from(blogDocumentHtml, \"utf8\").toString(\"base64\"),\n  mimeType: \"text/html\",\n  fileName: `${slug}.html`,\n};\n\nreturn [\n  {\n    json: {\n      ...blog,\n      faq_schema_json: faqSchemaJson,\n      image_alt: blog.image_alt || blog.alt_text || \"\",\n      image_data_url: imageDataUrl,\n      email_subject: `Blog: \"${title}\"`,\n      email_html: emailHtml,\n      blog_html_file_name: `${slug}.html`,\n    },\n    binary: imageBinary,\n  },\n];"
+      },
+      "id": "merge-blog-image",
+      "name": "Merge Blog + Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "replace-with-your-email@example.com",
+        "subject": "={{$json.email_subject}}",
+        "message": "={{$json.email_html}}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "blogImage"
+              },
+              {
+                "property": "blogHtml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "email-blog-draft",
+      "name": "Email Blog Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1300,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Parallel + publish v3:\nTrigger -> Sheets -> Pick today's row -> parallel drafts -> Opus fusion -> parse -> image -> merge.\n\nAfter merge, the workflow emails the draft and posts it to the WNY Automation Co Blog API.\n\nRequired env vars:\nOPENROUTER_API_KEY\nBLOG_API_TOKEN\nOptional: WNY_AUTOMATION_BLOG_API_URL",
+        "height": 240,
+        "width": 430,
+        "color": 4
+      },
+      "id": "simple-note",
+      "name": "Simple Setup Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1100,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Put this Code node right after \"Pick Today's Row\".\n//\n// It replaces the three separate Blog Creation branches by calling all\n// three draft models at the same time, then returns compact draft_1,\n// draft_2, and draft_3 payloads for the Opus fusion LLM.\n//\n// Required n8n environment variable:\n// OPENROUTER_API_KEY\n\nconst OPENROUTER_API_KEY = $env.OPENROUTER_API_KEY;\n\nconst DRAFT_MODELS = [\n  {\n    field: \"draft_1\",\n    label: \"SEO/AEO structure draft\",\n    model: \"openai/gpt-5.5\",\n    perspective: \"Prioritize search intent, answer-engine structure, headings, key takeaways, and FAQ quality.\",\n  },\n  {\n    field: \"draft_2\",\n    label: \"Local practical draft\",\n    model: \"deepseek/deepseek-v4-flash\",\n    perspective: \"Prioritize Buffalo/Niagara local specificity, practical small-business examples, and plain-English usefulness.\",\n  },\n  {\n    field: \"draft_3\",\n    label: \"Conversion draft\",\n    model: \"anthropic/claude-opus-4.7\",\n    perspective: \"Prioritize trust, CTA flow, objections, realistic limitations, and Free Workflow Audit conversion.\",\n  },\n];\n\nif (!OPENROUTER_API_KEY) {\n  throw new Error(\"OPENROUTER_API_KEY is not set in the n8n environment.\");\n}\n\nconst inputItems = $input.all();\nconst sources = inputItems.length ? inputItems.map((item) => item.json || {}) : [{}];\nconst httpRequest = this.helpers.httpRequest.bind(this);\nconst MAX_RETRIES = 3;\nconst BASE_RETRY_DELAY_MS = 8000;\nconst MAX_DRAFT_BODY_CHARS = 12000;\nconst MAX_DRAFT_FIELD_CHARS = 1200;\n\nfunction clean(value) {\n  return String(value || \"\").replace(/\\s+/g, \" \").trim();\n}\n\nfunction buildDraftPrompt(row, draftConfig) {\n  return `You are writing one candidate blog draft for WNY Automation Co. Another editor model will later fuse this draft with two other drafts, so focus on making this version genuinely strong from your assigned perspective.\n\nAssigned perspective:\n${draftConfig.perspective}\n\nBusiness positioning:\n- Brand: WNY Automation Co\n- Market: Buffalo, Niagara, and Western New York\n- Audience: local small business owners and operators who are busy, skeptical of hype, and want practical ways to save time.\n- Core offer: Free Workflow Audit\n- Tone: clear, useful, local, practical, direct, trustworthy, not futuristic, not buzzword-heavy.\n- Avoid hype words like revolutionary, disruptive, game-changing, cutting-edge, unlock, transform, and leverage unless absolutely necessary.\n\nScheduled blog row:\n- Blog number: ${clean(row.blog_number)}\n- Publish date: ${clean(row.publish_date)}\n- Industry: ${clean(row.industry)}\n- Funnel stage: ${clean(row.funnel_stage)}\n- Post title: ${clean(row.post_title)}\n- Content type: ${clean(row.content_type)}\n- Target word count: ${clean(row.target_word_count)}\n- Primary keyword: ${clean(row.primary_keyword)}\n- Secondary keywords: ${clean(row.secondary_keywords)}\n- LSI keywords: ${clean(row.lsi_keywords)}\n- Search intent: ${clean(row.search_intent)}\n- Pain point: ${clean(row.pain_point)}\n- How AI fixes it: ${clean(row.how_ai_fixes_it)}\n- Required outline: ${clean(row.outline)}\n- Recommended CTA: ${clean(row.cta)}\n- Suggested meta title: ${clean(row.meta_title)}\n- Suggested meta description: ${clean(row.meta_description)}\n- Research/source URL: ${clean(row.source_url)}\n\nDraft requirements:\n- Write a complete candidate article in blog_markdown, not notes.\n- Satisfy the search intent quickly in the first 2-3 sentences.\n- Include a concise answer block, Key Takeaways, practical sections, a realistic example, limitations, CTA, and Common Questions.\n- Use the primary keyword naturally. Do not keyword stuff.\n- Include Buffalo, Niagara, Western New York, or WNY naturally where relevant.\n- Add internal links naturally to /#automate, /#process, /#examples, or /#workflow-form.\n- If the research/source URL is useful, include it as a real external link.\n- Do not invent statistics, client results, case studies, prices, guarantees, or before/after metrics.\n- Do not include Entity Signals, Suggested Internal Links, SEO notes, source notes, schema explanations, or editorial notes.\n- Include an image prompt, image alt suggestion, and brief editor notes.\n- Do not include blog_html. The final fusion model will create the clean semantic HTML.\n\nReturn only valid JSON. Do not use markdown fences.\n\nUse this shape:\n{\n  \"generated_title\": \"\",\n  \"slug\": \"\",\n  \"meta_title\": \"\",\n  \"meta_description\": \"\",\n  \"excerpt\": \"\",\n  \"image_prompt\": \"\",\n  \"image_alt\": \"\",\n  \"blog_markdown\": \"\",\n  \"editor_notes\": \"\"\n}`;\n}\n\nfunction trimText(value, maxChars) {\n  const text = String(value || \"\").trim();\n  if (text.length <= maxChars) {\n    return text;\n  }\n\n  return `${text.slice(0, maxChars).trim()}\\n\\n[Trimmed for fusion input size.]`;\n}\n\nfunction stripJsonFence(value) {\n  return String(value || \"\")\n    .replace(/^\\s*```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```\\s*$/i, \"\")\n    .trim();\n}\n\nfunction parseJsonObject(value) {\n  const text = stripJsonFence(value);\n\n  try {\n    return JSON.parse(text);\n  } catch (error) {\n    const firstBrace = text.indexOf(\"{\");\n    const lastBrace = text.lastIndexOf(\"}\");\n\n    if (firstBrace >= 0 && lastBrace > firstBrace) {\n      return JSON.parse(text.slice(firstBrace, lastBrace + 1));\n    }\n\n    throw error;\n  }\n}\n\nfunction htmlToReadableText(value) {\n  return String(value || \"\")\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, \"\")\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, \"\")\n    .replace(/<br\\s*\\/?>/gi, \"\\n\")\n    .replace(/<\\/p>/gi, \"\\n\\n\")\n    .replace(/<\\/h[1-6]>/gi, \"\\n\\n\")\n    .replace(/<[^>]+>/g, \" \")\n    .replace(/&nbsp;/g, \" \")\n    .replace(/&amp;/g, \"&\")\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\")\n    .replace(/\\s+\\n/g, \"\\n\")\n    .replace(/\\n\\s+/g, \"\\n\")\n    .replace(/[ \\t]{2,}/g, \" \")\n    .trim();\n}\n\nfunction compactDraftContent(content) {\n  try {\n    const parsed = parseJsonObject(content);\n    const markdown =\n      parsed.blog_markdown ||\n      parsed.markdown ||\n      parsed.article_markdown ||\n      htmlToReadableText(parsed.blog_html || parsed.html || \"\");\n\n    return {\n      generated_title: trimText(parsed.generated_title || parsed.title, MAX_DRAFT_FIELD_CHARS),\n      slug: trimText(parsed.slug, MAX_DRAFT_FIELD_CHARS),\n      meta_title: trimText(parsed.meta_title, MAX_DRAFT_FIELD_CHARS),\n      meta_description: trimText(parsed.meta_description, MAX_DRAFT_FIELD_CHARS),\n      excerpt: trimText(parsed.excerpt || parsed.summary, MAX_DRAFT_FIELD_CHARS),\n      image_prompt: trimText(parsed.image_prompt, MAX_DRAFT_FIELD_CHARS),\n      image_alt: trimText(parsed.image_alt || parsed.alt_text, MAX_DRAFT_FIELD_CHARS),\n      blog_markdown: trimText(markdown, MAX_DRAFT_BODY_CHARS),\n      editor_notes: trimText(parsed.editor_notes || parsed.notes || parsed.rationale, MAX_DRAFT_FIELD_CHARS),\n    };\n  } catch (error) {\n    return {\n      blog_markdown: trimText(content, MAX_DRAFT_BODY_CHARS),\n      parse_warning: `Draft was not valid JSON before fusion compaction: ${error.message}`,\n    };\n  }\n}\n\nasync function callOpenRouter(source, draftConfig) {\n  let parsed;\n\n  for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {\n    try {\n      parsed = await httpRequest({\n        method: \"POST\",\n        url: \"https://openrouter.ai/api/v1/chat/completions\",\n        headers: {\n          Authorization: `Bearer ${OPENROUTER_API_KEY}`,\n          \"Content-Type\": \"application/json\",\n          \"HTTP-Referer\": \"https://wnyautomation.local\",\n          \"X-Title\": \"WNY Automation Co Blog Draft Pipeline\",\n        },\n        body: {\n          model: draftConfig.model,\n          temperature: 0.72,\n          messages: [\n            {\n              role: \"system\",\n              content: \"Write one strong candidate blog draft for WNY Automation Co. Return only valid JSON.\",\n            },\n            {\n              role: \"user\",\n              content: buildDraftPrompt(source, draftConfig),\n            },\n          ],\n        },\n        json: true,\n        timeout: 300000,\n      });\n      break;\n    } catch (error) {\n      const statusCode = error.response?.statusCode || error.statusCode || error.status;\n      const responseBody = error.response?.body ? JSON.stringify(error.response.body) : \"\";\n      const isRetryable = statusCode === 429 || statusCode === 408 || statusCode >= 500;\n\n      if (!isRetryable || attempt > MAX_RETRIES) {\n        throw new Error(`${draftConfig.label} failed after ${attempt} attempt(s): ${error.message}${responseBody ? ` ${responseBody}` : \"\"}`);\n      }\n\n      await new Promise((resolve) => setTimeout(resolve, BASE_RETRY_DELAY_MS * attempt));\n    }\n  }\n\n  const content =\n    parsed.choices?.[0]?.message?.content ||\n    parsed.message?.content ||\n    parsed.content ||\n    parsed.text ||\n    \"\";\n\n  return [\n    draftConfig.field,\n    JSON.stringify(\n      {\n        label: draftConfig.label,\n        model: draftConfig.model,\n        draft: compactDraftContent(content),\n      },\n      null,\n      2,\n    ),\n  ];\n}\n\nasync function createDraftsForSource(source, index, total) {\n  const settledDrafts = await Promise.allSettled(DRAFT_MODELS.map((draftConfig) => callOpenRouter(source, draftConfig)));\n  const failedDrafts = settledDrafts.filter((result) => result.status === \"rejected\");\n\n  if (failedDrafts.length === settledDrafts.length) {\n    throw new Error(`All parallel draft calls failed: ${failedDrafts.map((result) => result.reason.message).join(\" | \")}`);\n  }\n\n  const drafts = {};\n  const draft_errors = [];\n\n  for (const result of settledDrafts) {\n    if (result.status === \"fulfilled\") {\n      const [field, draft] = result.value;\n      drafts[field] = draft;\n    } else {\n      draft_errors.push(result.reason.message);\n    }\n  }\n\n  return {\n    json: {\n      ...source,\n      ...drafts,\n      draft_errors,\n      draft_batch_index: index + 1,\n      draft_batch_count: total,\n    },\n  };\n}\n\nreturn (async () => {\n  const output = [];\n\n  // Process rows one at a time to avoid multiplying rate-limit pressure.\n  // Each row still sends its three draft models in parallel.\n  for (let index = 0; index < sources.length; index++) {\n    output.push(await createDraftsForSource(sources[index], index, sources.length));\n  }\n\n  return output;\n})();\n"
+      },
+      "id": "create-parallel-blog-drafts",
+      "name": "Create Parallel Blog Drafts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.OPENROUTER_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "https://wnyautomation.local"
+            },
+            {
+              "name": "X-Title",
+              "value": "WNY Automation Co Blog Fusion Pipeline"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"anthropic/claude-opus-4.7\",\n  \"temperature\": 0.35,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are the final editor for WNY Automation Co. Fuse the candidate drafts into one publish-ready blog. Return only valid JSON matching the requested schema.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"You are the final editor for WNY Automation Co's automated blog pipeline.\\n\\nYour job is to combine three separately generated blog drafts into one publish-ready blog post that is better than any individual draft.\\n\\nYou are not writing from scratch unless all drafts are unusable. You are evaluating, selecting, rewriting, and polishing the best ideas from the drafts.\\n\\nBusiness positioning:\\n- Brand: WNY Automation Co\\n- Market: Buffalo, Niagara, and Western New York\\n- Audience: local small business owners and operators who are busy, skeptical of hype, and want practical ways to save time.\\n- Core offer: Free Workflow Audit\\n- Tone: clear, useful, local, practical, direct, trustworthy, not futuristic, not buzzword-heavy.\\n- Avoid hype words like revolutionary, disruptive, game-changing, cutting-edge, unlock, transform, and leverage unless absolutely necessary.\\n\\nScheduled blog row:\\n- Blog number: {{$json.blog_number}}\\n- Publish date: {{$json.publish_date}}\\n- Industry: {{$json.industry}}\\n- Funnel stage: {{$json.funnel_stage}}\\n- Post title: {{$json.post_title}}\\n- Content type: {{$json.content_type}}\\n- Target word count: {{$json.target_word_count}}\\n- Primary keyword: {{$json.primary_keyword}}\\n- Secondary keywords: {{$json.secondary_keywords}}\\n- LSI keywords: {{$json.lsi_keywords}}\\n- Search intent: {{$json.search_intent}}\\n- Pain point: {{$json.pain_point}}\\n- How AI fixes it: {{$json.how_ai_fixes_it}}\\n- Required outline: {{$json.outline}}\\n- Recommended CTA: {{$json.cta}}\\n- Suggested meta title: {{$json.meta_title}}\\n- Suggested meta description: {{$json.meta_description}}\\n- Research/source URL: {{$json.source_url}}\\n\\nDrafts to fuse:\\n\\nNote: Each draft is a compact JSON packet. Prefer the draft.blog_markdown content plus title/meta/image fields. Ignore parse_warning text, trimming notes, model labels, and any non-public metadata.\\n\\n<draft_1>\\n{{$json.draft_1}}\\n</draft_1>\\n\\n<draft_2>\\n{{$json.draft_2}}\\n</draft_2>\\n\\n<draft_3>\\n{{$json.draft_3}}\\n</draft_3>\\n\\nEditorial process:\\n1. Identify the strongest title, structure, explanations, examples, CTA, FAQ answers, image prompt, and local references across the three drafts.\\n2. Remove duplicated sections, generic filler, weak claims, hype, awkward phrasing, and anything that sounds like an SEO planning note.\\n3. Preserve the best local specificity: Buffalo, Niagara, Western New York, WNY, and relevant small-business examples.\\n4. Improve factual caution. Do not invent statistics, case studies, client results, prices, guarantees, or before/after metrics.\\n5. If an example is hypothetical, label it \\\"Example workflow\\\" or \\\"Realistic example.\\\" Do not imply it is a real WNY Automation Co client story.\\n6. Make the final article coherent, polished, and ready to publish.\\n\\nSEO requirements:\\n- Satisfy the search intent completely and quickly.\\n- Use the primary keyword naturally in the title, introduction, one H2, body copy, meta title, and meta description.\\n- Keep meta_title around 55-60 characters when possible.\\n- Keep meta_description under 160 characters when possible.\\n- Use secondary and LSI keywords naturally, only where they fit.\\n- Make the first 2-3 sentences directly answer the query and naturally mention Buffalo small businesses or the relevant local market.\\n- Include one natural external link to the Research/source URL if it is useful. Do not write vague source references without an actual link.\\n\\nInternal linking requirements:\\n- Do not create a public section called \\\"Suggested Internal Links,\\\" \\\"Internal Link Suggestions,\\\" or anything similar.\\n- Add 2-4 actual internal links naturally inside the article body.\\n- Prefer these existing WNY Automation Co targets when relevant:\\n  - /#automate for automation service examples\\n  - /#process for how WNY Automation Co starts with one workflow\\n  - /#examples for project ideas\\n  - /#workflow-form for the Free Workflow Audit\\n\\nAEO requirements:\\n- Include a concise answer block near the top that directly answers the title/query in 40-70 words.\\n- Include a \\\"Key Takeaways\\\" section with 4-6 crisp bullets.\\n- Include a \\\"Common Questions\\\" section with 5-7 direct Q&A pairs written in plain language.\\n- Each answer should be complete enough to be quoted by an AI assistant.\\n- Create FAQPage JSON-LD in faq_schema_json using the same questions and answers from the visible \\\"Common Questions\\\" section.\\n\\nCTA requirements:\\n- Include a soft CTA after the main use-case or benefit section.\\n- Include a stronger CTA near the end using this structure:\\n  - H2: Ready to find the one workflow costing you the most time?\\n  - Paragraph: Book a free workflow audit with WNY Automation Co. We will review your current process, identify the highest-value automation opportunity, and tell you whether automation is worth it.\\n  - Link: <a href=\\\"/#workflow-form\\\">Book your Free Workflow Audit</a>\\n\\nImage requirements:\\n- Return the strongest image_prompt from the drafts, improved if needed.\\n- The image_prompt should describe a realistic local small-business hero image that supports the article topic.\\n- Avoid overly corporate scenes, sci-fi visuals, fake UI text, and obvious AI gloss.\\n- Return image_alt as concise descriptive alt text, such as \\\"Small business owners reviewing AI workflow automation tools in Buffalo Niagara.\\\"\\n\\nPublic-content cleanup rules:\\n- Do not include \\\"Entity Signals\\\" in blog_markdown or blog_html.\\n- Do not include \\\"Suggested Internal Links\\\" in blog_markdown or blog_html.\\n- Do not include SEO notes, source notes, editorial notes, implementation notes, scoring notes, model comparisons, or schema explanations in the public article.\\n- Do not mention that multiple models wrote drafts.\\n- Do not mention that this was generated by AI.\\n\\nHTML rules:\\n- blog_html must be clean semantic HTML, ready to publish.\\n- Use only h1, h2, h3, p, ul, ol, li, strong, and a tags in blog_html.\\n- Do not use Markdown syntax inside blog_html.\\n- Convert all bold text to <strong>text</strong>.\\n- Convert all links to <a href=\\\"URL\\\">anchor text</a>.\\n- Do not output raw Markdown like **Pick one workflow.** or [Book your Free Workflow Audit](/#workflow-form) inside blog_html.\\n- Do not use markdown code fences.\\n\\nReturn only a valid JSON object. Do not add commentary before or after it. Do not use markdown fences.\\n\\nUse this exact JSON shape:\\n{\\n  \\\"generated_title\\\": \\\"SEO-friendly blog title\\\",\\n  \\\"slug\\\": \\\"lowercase-url-slug\\\",\\n  \\\"meta_title\\\": \\\"Under 60 characters if possible\\\",\\n  \\\"meta_description\\\": \\\"Under 160 characters if possible\\\",\\n  \\\"excerpt\\\": \\\"1-2 sentence summary for blog cards\\\",\\n  \\\"image_prompt\\\": \\\"Realistic hero image prompt\\\",\\n  \\\"image_alt\\\": \\\"Concise descriptive image alt text\\\",\\n  \\\"faq_schema_json\\\": {\\n    \\\"@context\\\": \\\"https://schema.org\\\",\\n    \\\"@type\\\": \\\"FAQPage\\\",\\n    \\\"mainEntity\\\": [\\n      {\\n        \\\"@type\\\": \\\"Question\\\",\\n        \\\"name\\\": \\\"Question from the visible Common Questions section\\\",\\n        \\\"acceptedAnswer\\\": {\\n          \\\"@type\\\": \\\"Answer\\\",\\n          \\\"text\\\": \\\"Plain-language answer matching the article\\\"\\n        }\\n      }\\n    ]\\n  },\\n  \\\"blog_markdown\\\": \\\"Full final public blog post in markdown\\\",\\n  \\\"blog_html\\\": \\\"Full final public blog post in clean semantic HTML\\\"\\n}\"\n    }\n  ]\n}"
+      },
+      "id": "opus-fusion-blog",
+      "name": "Opus Fusion Blog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        100,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first() || { json: {}, binary: {} };\nconst json = item.json || {};\nconst image = item.binary?.blogImage;\n\nfunction clean(value) {\n  return String(value || \"\").replace(/\\s+/g, \" \").trim();\n}\n\nfunction slugify(value) {\n  return String(value || \"\")\n    .toLowerCase()\n    .replace(/&/g, \" and \")\n    .replace(/[^a-z0-9]+/g, \"-\")\n    .replace(/^-+|-+$/g, \"\")\n    .slice(0, 90);\n}\n\nconst title = clean(json.generated_title || json.title || json.post_title);\nconst slug = slugify(json.slug || title);\nconst binaryDataUrl = image?.data ? `data:${image.mimeType || \"image/png\"};base64,${image.data}` : \"\";\nconst imageDataUrl = json.image_data_url || json.imageDataUrl || binaryDataUrl;\n\nif (!title || !slug) {\n  throw new Error(\"Cannot publish blog because title or slug is missing.\");\n}\n\nif (!json.blog_html && !json.blog_markdown) {\n  throw new Error(\"Cannot publish blog because blog_html and blog_markdown are both missing.\");\n}\n\nreturn [\n  {\n    json: {\n      title,\n      slug,\n      excerpt: json.excerpt || \"\",\n      caption: json.caption || json.excerpt || \"\",\n      meta_title: json.meta_title || title,\n      meta_description: json.meta_description || json.excerpt || \"\",\n      blog_markdown: json.blog_markdown || \"\",\n      blog_html: json.blog_html || \"\",\n      faq_schema_json: json.faq_schema_json || json.faq_schema || \"\",\n      image_alt: json.image_alt || json.alt_text || `Hero image for ${title}`,\n      industry: json.industry || \"\",\n      publish_date: json.publish_date || json.today_iso || \"\",\n      image_data_url: imageDataUrl,\n      status: \"published\",\n    },\n  },\n];"
+      },
+      "id": "prepare-blog-api-payload",
+      "name": "Prepare Blog API Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/api/blogs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer replace-with-your-blog-api-token"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "publish-to-wny-automation-blog-api",
+      "name": "Publish to WNY Automation Co Blog API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Optional one-time backfill picker.\n//\n// Put this Code node after \"Google Sheets - Pull Blog Schedule\" when you want\n// to run several manually added calendar rows right now.\n//\n// Default range matches the five rows in:\n// n8n/blog-calendar-backfill-rows.tsv\n\nconst BACKFILL_START_ISO = \"2026-04-28\";\nconst BACKFILL_END_ISO = \"2026-05-02\";\nconst MAX_ROWS = 5;\n\nlet context = {};\n\ntry {\n  context = $(\"Set Today\").first().json || {};\n} catch (error) {\n  context = {};\n}\n\nfunction clean(value) {\n  return String(value || \"\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nfunction getField(row, fieldName) {\n  if (row[fieldName] !== undefined) return row[fieldName];\n\n  const normalizedFieldName = clean(fieldName).toLowerCase();\n  const match = Object.entries(row).find(([key]) => clean(key).toLowerCase() === normalizedFieldName);\n  if (match) return match[1];\n\n  const fallbackColumns = {\n    \"Publish Date\": \"col_2\",\n    Day: \"col_3\",\n    Wk: \"col_4\",\n    Industry: \"col_5\",\n    \"Funnel Stage\": \"col_6\",\n    \"Post Title\": \"col_7\",\n    \"Content Type\": \"col_8\",\n    \"Target Word Count\": \"col_9\",\n    \"Primary Keyword\": \"col_10\",\n    \"Secondary Keywords (2-3)\": \"col_11\",\n    \"LSI Keywords (4-6)\": \"col_12\",\n    \"Search Intent\": \"col_13\",\n    \"Pain Point\": \"col_14\",\n    \"How AI Fixes It\": \"col_15\",\n    \"Content Brief Outline (H2 Structure)\": \"col_16\",\n    \"Recommended CTA\": \"col_17\",\n    \"Meta Title (<60 chars)\": \"col_18\",\n    \"Meta Description (<160 chars)\": \"col_19\",\n    \"Research / Source URL\": \"col_20\",\n  };\n\n  if (fieldName === \"#\") {\n    const firstDataKey = Object.keys(row).find((key) => key !== \"row_number\" && !/^col_\\d+$/i.test(key));\n    return firstDataKey ? row[firstDataKey] : \"\";\n  }\n\n  const fallbackKey = fallbackColumns[fieldName];\n  return fallbackKey && row[fallbackKey] !== undefined ? row[fallbackKey] : \"\";\n}\n\nfunction parseSheetDate(value) {\n  if (value === null || value === undefined || value === \"\") return \"\";\n\n  if (typeof value === \"number\") {\n    const excelEpoch = Date.UTC(1899, 11, 30);\n    return new Date(excelEpoch + value * 86400000).toISOString().slice(0, 10);\n  }\n\n  const text = String(value).trim();\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) return text;\n\n  const namedDate = text.match(/^([A-Za-z]{3,})\\s+(\\d{1,2}),?\\s+(\\d{4})$/);\n  if (namedDate) {\n    const months = {\n      jan: \"01\",\n      feb: \"02\",\n      mar: \"03\",\n      apr: \"04\",\n      may: \"05\",\n      jun: \"06\",\n      jul: \"07\",\n      aug: \"08\",\n      sep: \"09\",\n      oct: \"10\",\n      nov: \"11\",\n      dec: \"12\",\n    };\n    const month = months[namedDate[1].slice(0, 3).toLowerCase()];\n    const day = namedDate[2].padStart(2, \"0\");\n    const year = namedDate[3];\n    return month ? `${year}-${month}-${day}` : \"\";\n  }\n\n  const parsed = new Date(text);\n  if (Number.isNaN(parsed.getTime())) return \"\";\n\n  return parsed.toISOString().slice(0, 10);\n}\n\nfunction normalizeRow(row, publishDateIso, index, total) {\n  return {\n    ...context,\n    today_iso: context.today_iso || publishDateIso,\n    run_id: `blog-backfill-${publishDateIso}-${index + 1}-${Date.now()}`,\n    _debug_selected_by: \"backfill_date_range\",\n    backfill_start_iso: BACKFILL_START_ISO,\n    backfill_end_iso: BACKFILL_END_ISO,\n    backfill_index: index + 1,\n    backfill_count: total,\n    source_row_number: row.row_number || \"\",\n    blog_number: getField(row, \"#\"),\n    publish_date: getField(row, \"Publish Date\"),\n    industry: getField(row, \"Industry\"),\n    funnel_stage: getField(row, \"Funnel Stage\"),\n    post_title: getField(row, \"Post Title\"),\n    content_type: getField(row, \"Content Type\"),\n    target_word_count: getField(row, \"Target Word Count\"),\n    primary_keyword: getField(row, \"Primary Keyword\"),\n    secondary_keywords: getField(row, \"Secondary Keywords (2-3)\"),\n    lsi_keywords: getField(row, \"LSI Keywords (4-6)\"),\n    search_intent: getField(row, \"Search Intent\"),\n    pain_point: getField(row, \"Pain Point\"),\n    how_ai_fixes_it: getField(row, \"How AI Fixes It\"),\n    outline: getField(row, \"Content Brief Outline (H2 Structure)\"),\n    cta: getField(row, \"Recommended CTA\"),\n    meta_title: getField(row, \"Meta Title (<60 chars)\"),\n    meta_description: getField(row, \"Meta Description (<160 chars)\"),\n    source_url: getField(row, \"Research / Source URL\"),\n  };\n}\n\nconst candidateRows = $input\n  .all()\n  .map((item) => item.json || {})\n  .map((row) => {\n    const publishDate = getField(row, \"Publish Date\");\n    return {\n      row,\n      publishDateIso: parseSheetDate(publishDate),\n    };\n  })\n  .filter(({ row, publishDateIso }) => {\n    const publishDate = getField(row, \"Publish Date\");\n    return publishDate && clean(publishDate).toLowerCase() !== \"publish date\" && publishDateIso;\n  })\n  .filter(({ publishDateIso }) => publishDateIso >= BACKFILL_START_ISO && publishDateIso <= BACKFILL_END_ISO)\n  .sort((left, right) => left.publishDateIso.localeCompare(right.publishDateIso))\n  .slice(0, MAX_ROWS);\n\nreturn candidateRows.map(({ row, publishDateIso }, index) => ({\n  json: normalizeRow(row, publishDateIso, index, candidateRows.length),\n}));\n"
+      },
+      "id": "pick-backfill-blog-rows",
+      "name": "Pick Backfill Blog Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        240
+      ],
+      "notes": "Optional one-time backfill node. Connect Google Sheets - Pull Blog Schedule -> this node -> Create Parallel Blog Drafts, run manually, then reconnect Pick Today's Row for the schedule."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Manual single-blog picker.\n//\n// Put this Code node after \"Google Sheets - Pull Blog Schedule\".\n// Change TARGET_BLOG_NUMBER to \"1\", run it, then change it to \"2\", etc.\n//\n// It matches the \"#\" column in your Blog Schedule. If that column is missing,\n// it falls back to the row's position among real blog rows.\n\nconst TARGET_BLOG_NUMBER = \"1\";\n\nlet context = {};\n\ntry {\n  context = $(\"Set Today\").first().json || {};\n} catch (error) {\n  context = {};\n}\n\nfunction clean(value) {\n  return String(value || \"\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nfunction getField(row, fieldName) {\n  if (row[fieldName] !== undefined) return row[fieldName];\n\n  const normalizedFieldName = clean(fieldName).toLowerCase();\n  const match = Object.entries(row).find(([key]) => clean(key).toLowerCase() === normalizedFieldName);\n  if (match) return match[1];\n\n  const fallbackColumns = {\n    \"Publish Date\": \"col_2\",\n    Day: \"col_3\",\n    Wk: \"col_4\",\n    Industry: \"col_5\",\n    \"Funnel Stage\": \"col_6\",\n    \"Post Title\": \"col_7\",\n    \"Content Type\": \"col_8\",\n    \"Target Word Count\": \"col_9\",\n    \"Primary Keyword\": \"col_10\",\n    \"Secondary Keywords (2-3)\": \"col_11\",\n    \"LSI Keywords (4-6)\": \"col_12\",\n    \"Search Intent\": \"col_13\",\n    \"Pain Point\": \"col_14\",\n    \"How AI Fixes It\": \"col_15\",\n    \"Content Brief Outline (H2 Structure)\": \"col_16\",\n    \"Recommended CTA\": \"col_17\",\n    \"Meta Title (<60 chars)\": \"col_18\",\n    \"Meta Description (<160 chars)\": \"col_19\",\n    \"Research / Source URL\": \"col_20\",\n  };\n\n  if (fieldName === \"#\") {\n    const firstDataKey = Object.keys(row).find((key) => key !== \"row_number\" && !/^col_\\d+$/i.test(key));\n    return firstDataKey ? row[firstDataKey] : \"\";\n  }\n\n  const fallbackKey = fallbackColumns[fieldName];\n  return fallbackKey && row[fallbackKey] !== undefined ? row[fallbackKey] : \"\";\n}\n\nfunction normalizeBlogNumber(value) {\n  const text = clean(value);\n  const match = text.match(/\\d+/);\n  return match ? match[0] : text;\n}\n\nfunction isRealBlogRow(row) {\n  const publishDate = getField(row, \"Publish Date\");\n  const title = getField(row, \"Post Title\");\n\n  return (\n    publishDate &&\n    title &&\n    clean(publishDate).toLowerCase() !== \"publish date\" &&\n    clean(title).toLowerCase() !== \"post title\"\n  );\n}\n\nfunction toOutput(row, selectedBy) {\n  const now = new Date();\n\n  return {\n    ...context,\n    today_iso: context.today_iso || now.toISOString().slice(0, 10),\n    run_id: `manual-blog-${TARGET_BLOG_NUMBER}-${now.getTime()}`,\n    _debug_selected_by: selectedBy,\n    manual_target_blog_number: TARGET_BLOG_NUMBER,\n    source_row_number: row.row_number || \"\",\n    blog_number: getField(row, \"#\") || TARGET_BLOG_NUMBER,\n    publish_date: getField(row, \"Publish Date\"),\n    industry: getField(row, \"Industry\"),\n    funnel_stage: getField(row, \"Funnel Stage\"),\n    post_title: getField(row, \"Post Title\"),\n    content_type: getField(row, \"Content Type\"),\n    target_word_count: getField(row, \"Target Word Count\"),\n    primary_keyword: getField(row, \"Primary Keyword\"),\n    secondary_keywords: getField(row, \"Secondary Keywords (2-3)\"),\n    lsi_keywords: getField(row, \"LSI Keywords (4-6)\"),\n    search_intent: getField(row, \"Search Intent\"),\n    pain_point: getField(row, \"Pain Point\"),\n    how_ai_fixes_it: getField(row, \"How AI Fixes It\"),\n    outline: getField(row, \"Content Brief Outline (H2 Structure)\"),\n    cta: getField(row, \"Recommended CTA\"),\n    meta_title: getField(row, \"Meta Title (<60 chars)\"),\n    meta_description: getField(row, \"Meta Description (<160 chars)\"),\n    source_url: getField(row, \"Research / Source URL\"),\n  };\n}\n\nconst target = normalizeBlogNumber(TARGET_BLOG_NUMBER);\nconst rows = $input\n  .all()\n  .map((item) => item.json || {})\n  .filter(isRealBlogRow);\n\nlet selectedBy = \"blog_number\";\nlet match = rows.find((row) => normalizeBlogNumber(getField(row, \"#\")) === target);\n\nif (!match) {\n  selectedBy = \"data_row_position\";\n  const targetIndex = Number.parseInt(target, 10) - 1;\n  match = Number.isInteger(targetIndex) && targetIndex >= 0 ? rows[targetIndex] : null;\n}\n\nif (!match) {\n  throw new Error(`Could not find blog ${TARGET_BLOG_NUMBER}. Check the # column or row count in the Blog Schedule sheet.`);\n}\n\nreturn [\n  {\n    json: toOutput(match, selectedBy),\n  },\n];\n"
+      },
+      "id": "pick-blog-by-number",
+      "name": "Pick Blog By Number",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        420
+      ],
+      "notes": "Optional manual picker. Change TARGET_BLOG_NUMBER at the top of the code, connect Google Sheets - Pull Blog Schedule -> this node -> Create Parallel Blog Drafts, then run manually."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger - MWF Noon": {
+      "main": [
+        [
+          {
+            "node": "Set Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Today": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Pull Blog Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Pull Blog Schedule": {
+      "main": [
+        [
+          {
+            "node": "Pick Today's Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Today's Row": {
+      "main": [
+        [
+          {
+            "node": "Create Parallel Blog Drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Parallel Blog Drafts": {
+      "main": [
+        [
+          {
+            "node": "Opus Fusion Blog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opus Fusion Blog": {
+      "main": [
+        [
+          {
+            "node": "Parse Blog JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Blog JSON": {
+      "main": [
+        [
+          {
+            "node": "JS Image Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JS Image Generation": {
+      "main": [
+        [
+          {
+            "node": "Merge Blog + Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Blog + Image": {
+      "main": [
+        [
+          {
+            "node": "Email Blog Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Blog API Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Blog API Payload": {
+      "main": [
+        [
+          {
+            "node": "Publish to WNY Automation Co Blog API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": "wny-automation-parallel-fusion-publish-v6-manual-blog-picker"
+}

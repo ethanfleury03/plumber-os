@@ -29,6 +29,13 @@ yarn-error.log*
 # Vercel
 .vercel
 
+# App runtime data
+apps/marketing/data/*.sqlite
+apps/marketing/data/*.sqlite-*
+apps/marketing/data/test-uploads/
+apps/marketing/uploads/blogs/*
+!apps/marketing/uploads/blogs/.gitkeep
+
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts

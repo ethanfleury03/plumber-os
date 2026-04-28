@@ -1,0 +1,19 @@
+{
+  "name": "@wnyautomation/marketing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WNY Automation public website and blog publishing API.",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "echo \"No marketing lint configured\"",
+    "test": "node scripts/test-blog-api.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  }
+}

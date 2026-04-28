@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 96" role="img" aria-labelledby="title">
+  <title id="title">WNY Automation Co</title>
+  <rect x="4" y="10" width="76" height="76" rx="18" fill="#0f4f44"/>
+  <path d="M23 55 38 29l15 26 8-13 9 13" fill="none" stroke="#f2b84b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M21 68h45" fill="none" stroke="#f8f6ef" stroke-width="7" stroke-linecap="round"/>
+  <text x="96" y="48" fill="#102420" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="800">WNY Automation Co</text>
+  <text x="98" y="70" fill="#58736c" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600">Practical workflow automation</text>
+</svg>

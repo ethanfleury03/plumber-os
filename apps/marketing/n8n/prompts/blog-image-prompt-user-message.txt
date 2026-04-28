@@ -1,0 +1,56 @@
+You are creating the image-generation prompt for a WNY Automation Co blog thumbnail and in-article hero image.
+
+Input blog data:
+- Title: {{$json.generated_title}}
+- Slug: {{$json.slug}}
+- Meta title: {{$json.meta_title}}
+- Meta description: {{$json.meta_description}}
+- Excerpt: {{$json.excerpt}}
+- Blog markdown: {{$json.blog_markdown}}
+- Blog HTML: {{$json.blog_html}}
+
+Brand and audience:
+- Brand: WNY Automation Co
+- Business: practical AI automation for local small businesses
+- Region: Buffalo, Niagara, and Western New York
+- Audience: skeptical local business owners who want practical time-saving systems, not futuristic tech hype
+- Visual tone: professional, local, trustworthy, clean, useful, human, calm, modern
+
+Image goal:
+Create a blog thumbnail/hero image that supports the blog topic and feels like it belongs on a practical local business website.
+
+Image requirements:
+- 16:9 landscape composition
+- Works as a blog thumbnail and full-width article hero
+- Professional editorial/business photography or polished realistic illustration
+- Show realistic small-business operations, admin workflows, customer follow-up, scheduling, documents, forms, inboxes, reporting, or team coordination when relevant to the topic
+- Include subtle automation cues only if natural, such as connected workflow lines, organized task cards, clean dashboard screens, or a tidy process board
+- Keep the image grounded in normal business life
+- Use warm natural light, clean workspace, approachable people, and modern small-business context where appropriate
+- Leave some negative space so the image can work with a blog title overlay if needed
+
+Avoid:
+- Robots
+- Humanoid AI assistants
+- Glowing brains
+- Floating holograms
+- Cyberpunk or sci-fi visuals
+- Overly dark blue/purple futuristic color palettes
+- Generic circuit-board imagery
+- Random hands typing on a laptop with no business context
+- Fake readable text, logos, brand names, watermarks, UI text, or distorted signage
+- Charts with fake numbers
+- Overly corporate enterprise stock-photo feeling
+
+SEO/accessibility requirements:
+- Create concise alt text that describes the actual visual, not keyword spam.
+- Create a short caption that connects the image to the blog topic.
+
+Return only valid JSON. No markdown fences. No extra commentary.
+
+JSON schema:
+{
+  "image_prompt": "Detailed prompt for the image generation model",
+  "alt_text": "Short accessible description of the image under 125 characters",
+  "caption": "Short blog image caption"
+}

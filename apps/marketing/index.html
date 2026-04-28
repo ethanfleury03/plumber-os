@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="WNY Automation Co helps Buffalo, Niagara, and Western New York small businesses automate repetitive tasks, follow up faster, and reduce manual admin work."
+    />
+    <title>WNY Automation Co | Practical Automation for Local Businesses</title>
+    <link rel="icon" type="image/svg+xml" href="assets/wny-automation-icon.svg" />
+    <link rel="preconnect" href="https://images.unsplash.com" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header" aria-label="Primary navigation">
+      <div class="header-strip">
+        <div class="header-strip-inner">
+          <span>
+            <i data-lucide="map-pin" aria-hidden="true"></i>
+            Serving Buffalo, Niagara, and Western New York
+          </span>
+          <span>
+            <i data-lucide="clock-3" aria-hidden="true"></i>
+            Free 20-30 minute workflow audit
+          </span>
+        </div>
+      </div>
+
+      <div class="header-main">
+        <a class="brand" href="#top" aria-label="WNY Automation Co home">
+          <img class="brand-logo" src="assets/wny-automation-logo.svg" alt="WNY Automation Co" />
+        </a>
+        <nav class="nav-links" aria-label="Page sections">
+          <a href="#automate">What We Automate</a>
+          <a href="#process">How It Works</a>
+          <a href="#examples">Project Ideas</a>
+          <a href="/blogs">Blogs</a>
+          <a href="#faq">Questions</a>
+        </nav>
+        <a class="button header-cta button-primary" data-calendly-link href="#" aria-label="Book a WNY Automation Co demo">
+          <i data-lucide="calendar-check" aria-hidden="true"></i>
+          <span class="cta-label-full">Book Demo</span>
+          <span class="cta-label-short">Demo</span>
+        </a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-overlay"></div>
+        <div class="hero-inner">
+          <p class="eyebrow">Practical automation for Buffalo, Niagara, and WNY businesses</p>
+          <h1 id="hero-title">
+            Tell us the task your business hates doing manually.
+            <span>We will show you how to automate it.</span>
+          </h1>
+          <p class="hero-copy">
+            WNY Automation Co helps local businesses automate lead follow-up, customer support, scheduling, admin work, reporting,
+            forms, and other repetitive workflows without confusing tech jargon.
+          </p>
+          <div class="hero-actions" aria-label="Main calls to action">
+            <a class="button button-primary hero-primary-cta" data-calendly-link href="#">
+              <i data-lucide="calendar-check" aria-hidden="true"></i>
+              Book a Free Workflow Audit
+            </a>
+          </div>
+        </div>
+
+        <form class="lead-form workflow-form" id="workflow-form" aria-labelledby="form-title">
+          <label class="bot-field" for="company-website">Company website confirmation</label>
+          <input
+            class="bot-field"
+            id="company-website"
+            name="companyWebsite"
+            type="text"
+            tabindex="-1"
+            autocomplete="off"
+          />
+
+          <div class="form-header">
+            <p class="section-kicker">Free workflow audit</p>
+            <h2 id="form-title">What is one task your business does manually that wastes time?</h2>
+            <p>No pressure. No tech jargon. Just practical ideas for saving time and reducing manual work.</p>
+          </div>
+
+          <label class="field field-full" for="task">
+            <span>Biggest manual or repetitive business task</span>
+            <textarea
+              id="task"
+              name="task"
+              rows="4"
+              placeholder="Example: We manually follow up with every website lead..."
+              required
+            ></textarea>
+          </label>
+
+          <div class="field-grid">
+            <label class="field" for="business">
+              <span>Business name</span>
+              <input id="business" name="business" type="text" autocomplete="organization" required />
+            </label>
+
+            <label class="field" for="industry">
+              <span>Industry</span>
+              <input id="industry" name="industry" type="text" placeholder="Contractor, med spa, restaurant..." required />
+            </label>
+
+            <label class="field" for="name">
+              <span>Your name</span>
+              <input id="name" name="name" type="text" autocomplete="name" required />
+            </label>
+
+            <label class="field" for="email">
+              <span>Email</span>
+              <input id="email" name="email" type="email" autocomplete="email" required />
+            </label>
+
+            <label class="field" for="phone">
+              <span>Phone <em>optional</em></span>
+              <input id="phone" name="phone" type="tel" autocomplete="tel" />
+            </label>
+
+            <label class="field" for="website">
+              <span>Website <em>optional</em></span>
+              <input id="website" name="website" type="url" placeholder="https://example.com" />
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button class="button button-primary" type="submit">
+              <i data-lucide="sparkles" aria-hidden="true"></i>
+              Get My Free Automation Ideas
+            </button>
+            <a class="button button-secondary" data-calendly-link href="#">
+              <i data-lucide="calendar-days" aria-hidden="true"></i>
+              Book a Free Workflow Audit
+            </a>
+          </div>
+
+          <div class="form-status" id="form-status" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <section class="section intro-band" aria-label="Local credibility">
+        <div class="section-inner intro-grid">
+          <div>
+            <p class="section-kicker">Built for real operations</p>
+            <h2>Small businesses do not need more software. They need fewer manual bottlenecks.</h2>
+          </div>
+          <p>
+            WNY Automation Co starts with one workflow that already costs time: missed follow-ups, repeated customer questions,
+            messy intake forms, manual reporting, or admin tasks that should not eat up the week.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="automate" aria-labelledby="automate-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">What we help automate</p>
+            <h2 id="automate-title">Practical fixes for the work your team keeps repeating.</h2>
+          </div>
+
+          <div class="card-grid automate-grid">
+            <article class="info-card">
+              <i data-lucide="mail-check" aria-hidden="true"></i>
+              <h3>Missed lead follow-up</h3>
+              <p>Respond to new inquiries faster with text or email follow-ups that keep prospects warm.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="messages-square" aria-hidden="true"></i>
+              <h3>Customer questions and FAQs</h3>
+              <p>Answer common questions clearly so your team can focus on the conversations that need a person.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="calendar-clock" aria-hidden="true"></i>
+              <h3>Appointment booking and reminders</h3>
+              <p>Reduce no-shows and back-and-forth scheduling with simple reminders and booking flows.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="file-input" aria-hidden="true"></i>
+              <h3>Quote, invoice, and form workflows</h3>
+              <p>Turn form submissions into organized tasks, quote requests, or invoice steps without copying data.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="table-2" aria-hidden="true"></i>
+              <h3>Spreadsheet and reporting tasks</h3>
+              <p>Pull the numbers that matter into clean weekly updates instead of rebuilding reports by hand.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="star" aria-hidden="true"></i>
+              <h3>Review requests and reputation</h3>
+              <p>Ask happy customers for reviews at the right time and make the process easy for them.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="book-open-check" aria-hidden="true"></i>
+              <h3>Internal documents and staff questions</h3>
+              <p>Help employees find SOPs, policies, and answers without interrupting the owner or manager.</p>
+            </article>
+            <article class="info-card">
+              <i data-lucide="inbox" aria-hidden="true"></i>
+              <h3>Email and admin workflows</h3>
+              <p>Sort, route, and summarize routine admin work so fewer things fall through the cracks.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section process-section" id="process" aria-labelledby="process-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">How it works</p>
+            <h2 id="process-title">Start small. Prove value. Improve from there.</h2>
+          </div>
+
+          <div class="process-grid">
+            <article class="process-step">
+              <span>1</span>
+              <h3>Tell us your biggest manual task</h3>
+              <p>Submit the workflow that wastes time, creates delays, or causes missed opportunities.</p>
+            </article>
+            <article class="process-step">
+              <span>2</span>
+              <h3>We review the workflow</h3>
+              <p>On a short audit call, we learn your tools, steps, volume, and what would make the task smoother.</p>
+            </article>
+            <article class="process-step">
+              <span>3</span>
+              <h3>We build a small pilot</h3>
+              <p>If there is a fit, WNY Automation Co maps and builds one focused automation before expanding anything else.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section local-section" aria-labelledby="local-title">
+        <div class="section-inner local-grid">
+          <div>
+            <p class="section-kicker">Built for local small businesses</p>
+            <h2 id="local-title">You do not need to understand AI. You just need to know what is taking too much time.</h2>
+            <p>
+              WNY Automation Co is designed for owners and teams without a technical department or huge software budget. We work
+              with the tools you already use where possible, explain the setup clearly, and stay available after launch.
+            </p>
+          </div>
+          <div class="audit-panel" aria-label="Free workflow audit includes">
+            <h3>A free workflow audit looks at:</h3>
+            <ul class="check-list">
+              <li><i data-lucide="check" aria-hidden="true"></i>Your current manual steps</li>
+              <li><i data-lucide="check" aria-hidden="true"></i>The tools your business already uses</li>
+              <li><i data-lucide="check" aria-hidden="true"></i>Where time or leads are being lost</li>
+              <li><i data-lucide="check" aria-hidden="true"></i>One small pilot that could prove value</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="examples" aria-labelledby="examples-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">Examples of projects</p>
+            <h2 id="examples-title">Simple systems that make a normal business run smoother.</h2>
+          </div>
+
+          <div class="card-grid examples-grid">
+            <article class="project-card">
+              <i data-lucide="reply" aria-hidden="true"></i>
+              <h3>Lead follow-up system</h3>
+              <p>Automatically text or email new leads so your business responds while interest is high.</p>
+            </article>
+            <article class="project-card">
+              <i data-lucide="message-circle-question" aria-hidden="true"></i>
+              <h3>FAQ assistant</h3>
+              <p>A customer-facing assistant trained on your common questions, services, hours, and policies.</p>
+            </article>
+            <article class="project-card">
+              <i data-lucide="list-todo" aria-hidden="true"></i>
+              <h3>Form-to-task workflow</h3>
+              <p>Turn website forms into organized tasks, notifications, follow-ups, and owner summaries.</p>
+            </article>
+            <article class="project-card">
+              <i data-lucide="thumbs-up" aria-hidden="true"></i>
+              <h3>Review request system</h3>
+              <p>Send review requests after a job, visit, or delivery so happy customers are easier to capture.</p>
+            </article>
+            <article class="project-card">
+              <i data-lucide="bar-chart-3" aria-hidden="true"></i>
+              <h3>Weekly report generator</h3>
+              <p>Summarize sales, leads, job volume, or operational data in a clean weekly report.</p>
+            </article>
+            <article class="project-card">
+              <i data-lucide="clipboard-check" aria-hidden="true"></i>
+              <h3>Internal SOP assistant</h3>
+              <p>Help staff find answers from your procedures and documents without waiting on a manager.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section why-section" aria-labelledby="why-title">
+        <div class="section-inner why-grid">
+          <div>
+            <p class="section-kicker">Why work with WNY Automation Co</p>
+            <h2 id="why-title">Focused on useful business outcomes, not AI hype.</h2>
+            <p>
+              We start with one workflow, explain what is happening in plain language, and build around the way your
+              business already operates.
+            </p>
+          </div>
+          <ul class="feature-list">
+            <li><i data-lucide="target" aria-hidden="true"></i>Practical outcomes before fancy tools</li>
+            <li><i data-lucide="workflow" aria-hidden="true"></i>One workflow first, not your whole business</li>
+            <li><i data-lucide="speech" aria-hidden="true"></i>Clear explanations for non-technical owners</li>
+            <li><i data-lucide="plug" aria-hidden="true"></i>Works with your current tools when possible</li>
+            <li><i data-lucide="life-buoy" aria-hidden="true"></i>Support after launch</li>
+            <li><i data-lucide="map-pin" aria-hidden="true"></i>Focused on local business efficiency</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section offer-section" aria-labelledby="offer-title">
+        <div class="section-inner offer-inner">
+          <p class="section-kicker">Free workflow audit</p>
+          <h2 id="offer-title">Submit one manual business problem and we will map a few realistic automation ideas.</h2>
+          <p>
+            If there is a good fit, we can outline the workflow and build a small pilot to prove the value before
+            anything gets bigger.
+          </p>
+          <div class="offer-actions">
+            <a class="button button-primary" href="#workflow-form">
+              <i data-lucide="send" aria-hidden="true"></i>
+              Get My Free Automation Ideas
+            </a>
+            <a class="button button-secondary" data-calendly-link href="#">
+              <i data-lucide="calendar-check" aria-hidden="true"></i>
+              Book a Free Workflow Audit
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section faq-section" id="faq" aria-labelledby="faq-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">Questions owners ask</p>
+            <h2 id="faq-title">Short answers before you book.</h2>
+          </div>
+
+          <div class="faq-list">
+            <details>
+              <summary>Do I need to understand AI?</summary>
+              <p>No. You only need to know which tasks are wasting time. We handle the technical part and explain it clearly.</p>
+            </details>
+            <details>
+              <summary>What types of businesses do you work with?</summary>
+              <p>Local service businesses, professional offices, shops, restaurants, clinics, contractors, and teams with repetitive admin work.</p>
+            </details>
+            <details>
+              <summary>Is this expensive?</summary>
+              <p>The audit is free. If there is a fit, we recommend starting with a small pilot before making a larger commitment.</p>
+            </details>
+            <details>
+              <summary>Can you work with the tools we already use?</summary>
+              <p>Usually, yes. We look at your current website, forms, email, calendar, CRM, spreadsheets, and other tools first.</p>
+            </details>
+            <details>
+              <summary>How long does a first project take?</summary>
+              <p>A focused pilot is usually measured in days or a few weeks, depending on the workflow and tools involved.</p>
+            </details>
+            <details>
+              <summary>What if I do not know what I want automated?</summary>
+              <p>That is normal. Bring the tasks your team repeats often or complains about most, and we will help spot options.</p>
+            </details>
+            <details>
+              <summary>Will this replace my staff?</summary>
+              <p>The goal is to remove repetitive admin work so your team can respond faster and spend more time on higher-value work.</p>
+            </details>
+            <details>
+              <summary>Is our business data safe?</summary>
+              <p>We discuss what data is needed before building anything and keep the first pilot limited to what the workflow requires.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="final-cta" aria-labelledby="final-title">
+        <div class="section-inner final-inner">
+          <p class="section-kicker">Ready to find out what your business could automate?</p>
+          <h2 id="final-title">Tell us one task that wastes time. We will help you figure out if it can be automated.</h2>
+          <div class="final-actions">
+            <a class="button button-primary" href="#workflow-form">
+              <i data-lucide="send" aria-hidden="true"></i>
+              Get My Free Automation Ideas
+            </a>
+            <a class="button button-secondary" data-calendly-link href="#">
+              <i data-lucide="calendar-days" aria-hidden="true"></i>
+              Book a Free Workflow Audit
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-inner footer-inner">
+        <a class="brand" href="#top" aria-label="WNY Automation Co home">
+          <img class="brand-logo footer-logo" src="assets/wny-automation-logo.svg" alt="WNY Automation Co" />
+        </a>
+        <p>Practical automation for Buffalo, Niagara, and Western New York small businesses.</p>
+      </div>
+    </footer>
+  </body>
+</html>
