@@ -140,9 +140,10 @@ CREATE TABLE IF NOT EXISTS customers (
 
 CREATE TABLE IF NOT EXISTS buckets (
   id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   color TEXT DEFAULT '#6b7280',
-  position INTEGER NOT NULL UNIQUE,
+  position INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -160,6 +161,26 @@ CREATE TABLE IF NOT EXISTS leads (
   location TEXT,
   ai_qualification TEXT,
   ai_score INTEGER,
+  lead_context_json TEXT,
+  next_follow_up_at TEXT,
+  last_contacted_at TEXT,
+  estimated_value_cents INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS growth_records (
+  id TEXT PRIMARY KEY DEFAULT (uuid()) NOT NULL,
+  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  record_type TEXT NOT NULL,
+  source_key TEXT,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Idea',
+  owner TEXT,
+  related_record_id TEXT,
+  payload_json TEXT,
+  is_demo INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -241,9 +262,15 @@ CREATE TABLE IF NOT EXISTS call_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_customers_company_id ON customers(company_id);
+CREATE INDEX IF NOT EXISTS idx_buckets_company ON buckets(company_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_buckets_company_position ON buckets(company_id, position);
 CREATE INDEX IF NOT EXISTS idx_leads_company_id ON leads(company_id);
 CREATE INDEX IF NOT EXISTS idx_leads_customer_id ON leads(customer_id);
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_growth_records_company_type ON growth_records(company_id, record_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_growth_records_source_key
+  ON growth_records(company_id, record_type, source_key)
+  WHERE source_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_jobs_company_id ON jobs(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_customer_id ON jobs(customer_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_lead_id ON jobs(lead_id);

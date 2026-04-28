@@ -3,28 +3,28 @@
 @import "react-big-calendar/lib/css/react-big-calendar.css";
 
 :root {
-  --background: #e6edf6;
-  --foreground: #11223d;
-  --ops-bg: #e6edf6;
-  --ops-surface: #f7fafe;
-  --ops-surface-elevated: rgba(249, 251, 254, 0.94);
-  --ops-surface-strong: #fcfdff;
-  --ops-surface-subtle: #edf3fa;
-  --ops-border: rgba(136, 155, 190, 0.34);
-  --ops-border-strong: rgba(105, 127, 170, 0.46);
-  --ops-focus-ring: rgba(43, 102, 228, 0.14);
-  --ops-text: #11223d;
-  --ops-muted: #5d6f89;
-  --ops-muted-strong: #41526b;
-  --ops-shell: #081a34;
+  --background: #edf1ec;
+  --foreground: #17241f;
+  --ops-bg: #edf1ec;
+  --ops-surface: #f8faf6;
+  --ops-surface-elevated: rgba(251, 252, 248, 0.94);
+  --ops-surface-strong: #fffefa;
+  --ops-surface-subtle: #e8eee7;
+  --ops-border: rgba(105, 126, 111, 0.32);
+  --ops-border-strong: rgba(77, 99, 84, 0.44);
+  --ops-focus-ring: rgba(47, 107, 79, 0.15);
+  --ops-text: #17241f;
+  --ops-muted: #607068;
+  --ops-muted-strong: #41534a;
+  --ops-shell: #12251e;
   --ops-shell-soft: rgba(255, 255, 255, 0.08);
   --ops-shell-border: rgba(255, 255, 255, 0.1);
-  --ops-shell-muted: #aec0e4;
-  --ops-brand: #2b66e4;
-  --ops-brand-strong: #1f54cc;
-  --ops-brand-soft: rgba(43, 102, 228, 0.1);
-  --ops-brand-soft-border: rgba(43, 102, 228, 0.2);
-  --ops-brand-ink: #163f90;
+  --ops-shell-muted: #bdd0c6;
+  --ops-brand: #2f6b4f;
+  --ops-brand-strong: #24553f;
+  --ops-brand-soft: rgba(47, 107, 79, 0.11);
+  --ops-brand-soft-border: rgba(47, 107, 79, 0.22);
+  --ops-brand-ink: #1f563c;
   --ops-success: #1f9b6d;
   --ops-success-soft: rgba(31, 155, 109, 0.1);
   --ops-success-soft-border: rgba(31, 155, 109, 0.18);
@@ -47,7 +47,7 @@
     0 22px 44px -30px rgba(16, 28, 50, 0.18),
     0 8px 18px -16px rgba(40, 61, 98, 0.08);
   --ops-shadow-inset: 0 1px 0 rgba(255, 255, 255, 0.78);
-  --ops-shell-gradient: linear-gradient(180deg, #08172f 0%, #0a1d3a 48%, #071428 100%);
+  --ops-shell-gradient: linear-gradient(180deg, #10251d 0%, #173327 52%, #0d1b17 100%);
 }
 
 @theme inline {
@@ -114,9 +114,9 @@ body {
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(59, 93, 163, 0.08), transparent 24%),
-    radial-gradient(circle at top right, rgba(132, 154, 196, 0.12), transparent 22%),
-    linear-gradient(180deg, #eaf0f7 0%, #e4ebf4 100%),
+    radial-gradient(circle at top left, rgba(47, 107, 79, 0.09), transparent 24%),
+    radial-gradient(circle at top right, rgba(143, 117, 76, 0.1), transparent 22%),
+    linear-gradient(180deg, #f0f3ee 0%, #e7ece6 100%),
     var(--ops-bg);
   color: var(--foreground);
   font-family: var(--font-app-sans), "Segoe UI", sans-serif;
@@ -124,8 +124,8 @@ body {
 
 .ops-shell {
   background:
-    radial-gradient(circle at top right, rgba(124, 148, 196, 0.12), transparent 18%),
-    linear-gradient(180deg, #e9eff7 0%, #e3ebf4 100%);
+    radial-gradient(circle at top right, rgba(47, 107, 79, 0.11), transparent 18%),
+    linear-gradient(180deg, #f0f3ee 0%, #e6ece5 100%);
 }
 
 .ops-shell .bg-white {
@@ -184,8 +184,8 @@ pre,
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top left, rgba(77, 126, 255, 0.22), transparent 34%),
-    radial-gradient(circle at 90% 80%, rgba(86, 125, 255, 0.12), transparent 28%);
+    radial-gradient(circle at top left, rgba(86, 141, 103, 0.22), transparent 34%),
+    radial-gradient(circle at 90% 80%, rgba(178, 137, 78, 0.12), transparent 28%);
   pointer-events: none;
 }
 
@@ -199,9 +199,9 @@ pre,
 }
 
 .sidebar-logo {
-  background: linear-gradient(180deg, #4a7eff, #255cf3);
+  background: linear-gradient(180deg, #5f8f61, #2f6b4f);
   box-shadow:
-    0 16px 28px -18px rgba(33, 105, 255, 0.84),
+    0 16px 28px -18px rgba(47, 107, 79, 0.84),
     inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 
@@ -218,7 +218,7 @@ pre,
   left: 0;
   width: 3px;
   border-radius: 0 999px 999px 0;
-  background: linear-gradient(180deg, #6eb3ff 0%, #2169ff 100%);
+  background: linear-gradient(180deg, #b88d4f 0%, #4f8c5f 100%);
   opacity: 0;
   transform: scaleY(0.4);
   transition: opacity 140ms ease, transform 140ms ease;
@@ -391,7 +391,7 @@ pre,
 }
 
 .text-gradient {
-  background: linear-gradient(180deg, #2f70ff, #1847d8);
+  background: linear-gradient(180deg, #2f6b4f, #b27c3f);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

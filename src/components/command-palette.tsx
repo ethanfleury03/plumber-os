@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search, Loader2 } from 'lucide-react';
 
 type Result = {
-  type: 'customer' | 'job' | 'invoice' | 'estimate' | 'lead';
+  type: 'customer' | 'estimate' | 'lead' | 'growth';
   id: string;
   title: string;
   subtitle: string;
@@ -116,7 +116,7 @@ export function CommandPalette() {
               setActive(0);
             }}
             onKeyDown={onInputKey}
-            placeholder="Search customers, jobs, invoices, estimates, leads…"
+            placeholder="Search cabin leads, contacts, estimates, and growth work..."
             className="flex-1 bg-transparent text-sm text-[var(--ops-text)] outline-none placeholder:text-[var(--ops-muted)]"
           />
           <kbd className="rounded-lg border border-[var(--ops-border)] bg-white px-2 py-1 text-xs text-[var(--ops-muted)]">Esc</kbd>

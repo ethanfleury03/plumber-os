@@ -23,6 +23,8 @@ import { applyPlatformMigrations } from '@/lib/platform/sqlite-platform-migrate'
 import { applyTenancyMigrations } from '@/lib/platform/sqlite-tenancy-migrate';
 import { applyWorkflowMigrations } from '@/lib/platform/sqlite-workflow-migrate';
 import { applyMarketingMigrations } from '@/lib/marketing/sqlite-marketing-migrate';
+import { applyGrowthMigrations } from '@/lib/growth/sqlite-growth-migrate';
+import { applyAiMigrations } from '@/lib/ai/sqlite-ai-migrate';
 
 type PgPoolType = import('@neondatabase/serverless').Pool;
 
@@ -173,6 +175,8 @@ export function getDb(): Database.Database {
   applyTenancyMigrations(dbInstance);
   applyWorkflowMigrations(dbInstance);
   applyMarketingMigrations(dbInstance);
+  applyGrowthMigrations(dbInstance);
+  applyAiMigrations(dbInstance);
   if (process.env.NODE_ENV !== 'test') {
     seedAdminUser(dbInstance);
   }

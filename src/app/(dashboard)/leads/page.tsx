@@ -1,482 +1,672 @@
 'use client';
 
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
-import { Search, Bell, Plus, MoreHorizontal, MapPin, Phone, Calendar, X } from 'lucide-react';
-import { getStatusStyle, leadStatusLabels, sourceLabels } from '@/lib/statusColors';
+import { useSearchParams } from 'next/navigation';
+import { LeadPipelineBoard } from '@/components/awp/lead-pipeline-board';
+import {
+  AppPageHeader,
+  DataTable,
+  DetailDrawer,
+  EmptyState,
+  KpiStrip,
+  OpsButton,
+  OpsInput,
+  OpsSelect,
+  OpsTextarea,
+  SearchField,
+  StatCard,
+  StatusBadge,
+  opsButtonClass,
+} from '@/components/ops/ui';
+import {
+  awpIntendedUseOptions,
+  awpLeadSourceOptions,
+  awpLeadTypeOptions,
+  awpPipelineStages,
+  awpYesNoUnknownOptions,
+  sourceFromSlug,
+} from '@/lib/awp/config';
+import { formatCurrency, formatDateLabel, parseJsonSafely } from '@/lib/ops';
+import { CalendarClock, LayoutGrid, Plus, RefreshCw, Save, Search, Trash2, Users } from 'lucide-react';
 
-interface Lead {
+type Lead = {
   id: string;
-  company_id: string;
-  customer_id?: string;
-  plumber_id?: string;
+  source: string;
+  status: string;
+  priority?: number;
+  issue: string;
+  description?: string | null;
+  location?: string | null;
+  ai_qualification?: string | null;
+  ai_score?: number | null;
+  lead_context_json?: string | null;
+  next_follow_up_at?: string | null;
+  last_contacted_at?: string | null;
+  estimated_value_cents?: number | null;
+  created_at: string;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  customer_address?: string | null;
+};
+
+type LeadDraft = {
+  id?: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  issue: string;
+  description: string;
+  location: string;
   source: string;
   status: string;
   priority: number;
-  issue: string;
-  description?: string;
-  location?: string;
-  ai_qualification?: unknown;
-  ai_score?: number;
-  created_at: string;
-  updated_at: string;
-  // Joined fields (flat from API)
-  customer_name?: string;
-  customer_phone?: string;
-  customer_email?: string;
-  customer_address?: string;
-  plumber_name?: string;
-}
-
-interface LeadStats {
-  total: number;
-  new: number;
-  working: number;
-  converted: number;
-}
-
-
-
-const statusColors: Record<string, string> = {
-  new: 'bg-blue-100 text-blue-700',
-  qualified: 'bg-purple-100 text-purple-700',
-  quoted: 'bg-yellow-100 text-yellow-700',
-  booked: 'bg-orange-100 text-orange-700',
-  in_progress: 'bg-yellow-100 text-yellow-700',
-  completed: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
+  ai_score: number;
+  estimated_value: number;
+  next_follow_up_at: string;
+  last_contacted_at: string;
+  context: {
+    company: string;
+    leadType: string;
+    ownsLand: string;
+    hasSiteAccess: string;
+    utilitiesAvailable: string;
+    intendedUse: string;
+    estimatedBudget: string;
+    timeline: string;
+    cabinInterestLevel: string;
+    notes: string;
+    assignedOwner: string;
+    aiSummary: string;
+  };
 };
 
-const statusLabels: Record<string, string> = {
-  new: 'New',
-  qualified: 'Qualified',
-  quoted: 'Quoted',
-  booked: 'Booked',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-  lost: 'Lost',
-};
+function dateInputValue(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
 
-const sources = ['website', 'phone', 'thumbtack', 'angi', 'google', 'referral'];
-const serviceTypes = ['Drain Cleaning', 'Water Heater', 'Leak Repair', 'Pipe Installation', 'Toilet Repair', 'Faucet Repair', 'Sewer Line', 'Other'];
+function contextForLead(lead: Lead) {
+  return parseJsonSafely<Record<string, unknown>>(lead.lead_context_json || '') || {};
+}
 
-export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [stats, setStats] = useState<LeadStats>({ total: 0, new: 0, working: 0, converted: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  
-  // Filters
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [sourceFilter, setSourceFilter] = useState('all');
-  
-  // Modal
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  
-  // New lead form
-  const [newLead, setNewLead] = useState({
+function createEmptyDraft(): LeadDraft {
+  return {
+    customer_name: '',
+    customer_email: '',
+    customer_phone: '',
     issue: '',
     description: '',
     location: '',
-    source: 'website',
+    source: 'Website Form',
+    status: 'new_lead',
     priority: 3,
-  });
+    ai_score: 50,
+    estimated_value: 0,
+    next_follow_up_at: '',
+    last_contacted_at: '',
+    context: {
+      company: '',
+      leadType: 'Homeowner',
+      ownsLand: 'Unknown',
+      hasSiteAccess: 'Unknown',
+      utilitiesAvailable: 'Unknown',
+      intendedUse: 'Unknown',
+      estimatedBudget: '',
+      timeline: '',
+      cabinInterestLevel: 'Medium',
+      notes: '',
+      assignedOwner: 'AWP Sales',
+      aiSummary: '',
+    },
+  };
+}
 
-  // Fetch leads from API
-  const fetchLeads = async () => {
+function draftFromLead(lead: Lead): LeadDraft {
+  const context = contextForLead(lead);
+  return {
+    id: lead.id,
+    customer_name: lead.customer_name || '',
+    customer_email: lead.customer_email || '',
+    customer_phone: lead.customer_phone || '',
+    issue: lead.issue || '',
+    description: lead.description || '',
+    location: lead.location || '',
+    source: sourceFromSlug(lead.source),
+    status: lead.status || 'new_lead',
+    priority: Number(lead.priority || 3),
+    ai_score: Number(lead.ai_score || 50),
+    estimated_value: Number(lead.estimated_value_cents || 0) / 100,
+    next_follow_up_at: dateInputValue(lead.next_follow_up_at),
+    last_contacted_at: dateInputValue(lead.last_contacted_at),
+    context: {
+      company: String(context.company || ''),
+      leadType: String(context.leadType || 'Homeowner'),
+      ownsLand: String(context.ownsLand || 'Unknown'),
+      hasSiteAccess: String(context.hasSiteAccess || 'Unknown'),
+      utilitiesAvailable: String(context.utilitiesAvailable || 'Unknown'),
+      intendedUse: String(context.intendedUse || 'Unknown'),
+      estimatedBudget: String(context.estimatedBudget || ''),
+      timeline: String(context.timeline || ''),
+      cabinInterestLevel: String(context.cabinInterestLevel || 'Medium'),
+      notes: String(context.notes || ''),
+      assignedOwner: String(context.assignedOwner || 'AWP Sales'),
+      aiSummary: String(context.aiSummary || lead.ai_qualification || ''),
+    },
+  };
+}
+
+export default function LeadsPage() {
+  const searchParams = useSearchParams();
+  const view = searchParams.get('view') === 'pipeline' ? 'pipeline' : 'list';
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [draft, setDraft] = useState<LeadDraft | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (sourceFilter !== 'all') params.set('source', sourceFilter);
-      
-      const res = await fetch(`/api/leads?${params}`);
-      const data = await res.json();
-      
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setLeads(data.leads || []);
-        // Calculate stats
-        const leadsData = data.leads || [];
-        setStats({
-          total: data.total || leadsData.length,
-          new: leadsData.filter((l: Lead) => l.status === 'new').length,
-          working: leadsData.filter((l: Lead) => l.status === 'in_progress').length,
-          converted: leadsData.filter((l: Lead) => l.status === 'completed').length,
-        });
-      }
+      const response = await fetch('/api/leads?limit=250', { cache: 'no-store' });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || 'Failed to load leads');
+      setLeads(json.leads || []);
     } catch (err) {
-      setError('Failed to fetch leads');
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Failed to load leads');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchLeads();
-  }, [statusFilter, sourceFilter]);
+    load();
+  }, [load]);
 
-  // Filter leads locally (for search)
-  const filteredLeads = leads.filter(lead => {
-    const searchLower = search.toLowerCase();
-    return (
-      lead.customer_name?.toLowerCase().includes(searchLower) ||
-      lead.customer_phone?.includes(search) ||
-      lead.location?.toLowerCase().includes(searchLower) ||
-      lead.issue?.toLowerCase().includes(searchLower)
-    );
-  });
+  const filteredLeads = useMemo(() => {
+    const needle = search.toLowerCase().trim();
+    return leads.filter((lead) => {
+      const context = contextForLead(lead);
+      const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
+      const matchesSource = sourceFilter === 'all' || sourceFromSlug(lead.source) === sourceFilter;
+      const matchesSearch =
+        !needle ||
+        [
+          lead.customer_name,
+          lead.customer_phone,
+          lead.customer_email,
+          lead.issue,
+          lead.location,
+          context.company,
+          context.leadType,
+          context.intendedUse,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      return matchesStatus && matchesSource && matchesSearch;
+    });
+  }, [leads, search, sourceFilter, statusFilter]);
 
-  // Handle create lead
-  const handleCreateLead = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    
+  const stats = useMemo(() => {
+    const followUpsDue = leads.filter((lead) => {
+      if (!lead.next_follow_up_at) return false;
+      const date = new Date(lead.next_follow_up_at);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      return !Number.isNaN(date.getTime()) && date <= end;
+    }).length;
+    const proposals = leads.filter((lead) => lead.status === 'proposal_sent').length;
+    const won = leads.filter((lead) => lead.status === 'won').length;
+    const value = leads
+      .filter((lead) => !['lost', 'won'].includes(lead.status))
+      .reduce((sum, lead) => sum + Number(lead.estimated_value_cents || 0), 0);
+
+    return {
+      total: leads.length,
+      qualified: leads.filter((lead) => ['qualified', 'planning_call_scheduled', 'design_layout_discussion'].includes(lead.status)).length,
+      followUpsDue,
+      proposals,
+      won,
+      value,
+    };
+  }, [leads]);
+
+  async function saveLead() {
+    if (!draft?.customer_name.trim() || !draft.issue.trim()) return;
+    setSaving(true);
+    setError('');
     try {
-      const res = await fetch('/api/leads', {
-        method: 'POST',
+      const response = await fetch('/api/leads', {
+        method: draft.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newLead),
+        body: JSON.stringify({
+          id: draft.id,
+          customer_name: draft.customer_name,
+          customer_email: draft.customer_email,
+          customer_phone: draft.customer_phone,
+          issue: draft.issue,
+          description: draft.description,
+          location: draft.location,
+          source: draft.source,
+          status: draft.status,
+          priority: draft.priority,
+          ai_score: draft.ai_score,
+          ai_summary: draft.context.aiSummary,
+          lead_context_json: JSON.stringify(draft.context),
+          next_follow_up_at: draft.next_follow_up_at ? new Date(`${draft.next_follow_up_at}T09:00:00`).toISOString() : null,
+          last_contacted_at: draft.last_contacted_at ? new Date(`${draft.last_contacted_at}T09:00:00`).toISOString() : null,
+          estimated_value_cents: Math.round(Number(draft.estimated_value || 0) * 100),
+        }),
       });
-      
-      const data = await res.json();
-      
-      if (data.error) {
-        alert(data.error);
-      } else {
-        setShowAddModal(false);
-        setNewLead({
-          issue: '',
-          description: '',
-          location: '',
-          source: 'website',
-          priority: 3,
-        });
-        fetchLeads();
-      }
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || 'Failed to save lead');
+      setDraft(null);
+      await load();
     } catch (err) {
-      alert('Failed to create lead');
+      setError(err instanceof Error ? err.message : 'Failed to save lead');
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
-  };
+  }
 
-  // Handle status change
-  const handleStatusChange = async (leadId: string, newStatus: string) => {
+  async function deleteLead() {
+    if (!draft?.id || !confirm(`Delete ${draft.customer_name || draft.issue}?`)) return;
+    setSaving(true);
     try {
-      const res = await fetch('/api/leads', {
+      const response = await fetch(`/api/leads?id=${encodeURIComponent(draft.id)}`, { method: 'DELETE' });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || 'Failed to delete lead');
+      setDraft(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete lead');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function quickStatus(lead: Lead, status: string) {
+    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status } : item)));
+    try {
+      await fetch('/api/leads', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: leadId, status: newStatus }),
+        body: JSON.stringify({ id: lead.id, status }),
       });
-      
-      const data = await res.json();
-      if (!data.error) {
-        fetchLeads();
-      }
-    } catch (err) {
-      console.error('Failed to update lead');
+    } catch {
+      load();
     }
-  };
+  }
 
-  // Handle delete
-  const handleDelete = async (leadId: string) => {
-    if (!confirm('Are you sure you want to delete this lead?')) return;
-    
-    try {
-      const res = await fetch(`/api/leads?id=${leadId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!data.error) {
-        fetchLeads();
-      }
-    } catch (err) {
-      console.error('Failed to delete lead');
-    }
-  };
-
-  // Format date
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  function updateContext(key: keyof LeadDraft['context'], value: string) {
+    if (!draft) return;
+    setDraft({ ...draft, context: { ...draft.context, [key]: value } });
+  }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 bg-gray-50">
-      <main className="flex-1 min-h-0 overflow-auto">
-        <header className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Leads</h1>
-            <p className="text-gray-500 text-sm">Manage and track your leads</p>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Search leads..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm w-64 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            
-            <button className="p-2 hover:bg-gray-100 rounded-lg relative">
-              <Bell className="w-5 h-5 text-gray-600" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-          </div>
-        </header>
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--ops-bg)]">
+      <main className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 xl:px-8">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-6">
+          <AppPageHeader
+            icon={Users}
+            eyebrow="Cabin Buyer Leads"
+            title="Cabin Buyer Leads"
+            description="Manage cabin opportunities in a focused list view or visual pipeline view."
+            actions={
+              <>
+                <Link href="/leads" className={opsButtonClass(view === 'list' ? 'primary' : 'secondary')}>
+                  <Users className="h-4 w-4" />
+                  List
+                </Link>
+                <Link href="/leads?view=pipeline" className={opsButtonClass(view === 'pipeline' ? 'primary' : 'secondary')}>
+                  <LayoutGrid className="h-4 w-4" />
+                  Pipeline
+                </Link>
+                {view === 'list' ? (
+                  <>
+                    <SearchField
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search cabin leads..."
+                      className="min-w-[min(360px,100%)]"
+                    />
+                    <OpsButton type="button" variant="secondary" onClick={load}>
+                      <RefreshCw className="h-4 w-4" />
+                      Refresh
+                    </OpsButton>
+                    <OpsButton type="button" variant="primary" onClick={() => setDraft(createEmptyDraft())}>
+                      <Plus className="h-4 w-4" />
+                      New Lead
+                    </OpsButton>
+                  </>
+                ) : null}
+              </>
+            }
+          />
 
-        <div className="p-8">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-4 gap-6 mb-6">
-            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <p className="text-gray-500 text-sm mb-1">Total Leads</p>
-              <p className="text-3xl font-bold text-gray-900">{loading ? '...' : stats.total}</p>
-            </div>
-            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <p className="text-gray-500 text-sm mb-1">New</p>
-              <p className="text-3xl font-bold text-blue-600">{loading ? '...' : stats.new}</p>
-            </div>
-            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <p className="text-gray-500 text-sm mb-1">In Progress</p>
-              <p className="text-3xl font-bold text-yellow-600">{loading ? '...' : stats.working}</p>
-            </div>
-            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-              <p className="text-gray-500 text-sm mb-1">Completed</p>
-              <p className="text-3xl font-bold text-green-600">{loading ? '...' : stats.converted}</p>
-            </div>
-          </div>
-
-          {/* Filters & Add Button */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <select 
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-                className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Sources</option>
-                {sources.map(source => (
-                  <option key={source} value={source}>{source.charAt(0).toUpperCase() + source.slice(1)}</option>
-                ))}
-              </select>
-              
-              <select 
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="new">New</option>
-                <option value="qualified">Qualified</option>
-                <option value="quoted">Quoted</option>
-                <option value="booked">Booked</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="lost">Lost</option>
-              </select>
-            </div>
-            
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition"
-            >
-              <Plus className="w-5 h-5" /> New Lead
-            </button>
-          </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg mb-4 text-sm">
+          {error ? (
+            <div className="rounded-[24px] border border-[var(--ops-danger-soft-border)] bg-[var(--ops-danger-soft)] px-4 py-3 text-sm text-[var(--ops-danger-ink)]">
               {error}
             </div>
-          )}
+          ) : null}
 
-          {/* Leads Table */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Name</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Service Type</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Phone</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Location</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Status</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Date</th>
-                  <th className="px-6 py-4"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Loading leads...
+          {view === 'pipeline' ? (
+            <LeadPipelineBoard />
+          ) : (
+            <>
+              <KpiStrip className="xl:grid-cols-6">
+                <StatCard label="Total Leads" value={loading ? '...' : stats.total} meta="All cabin and partner opportunities" tone="brand" icon={Users} />
+                <StatCard label="Qualified" value={loading ? '...' : stats.qualified} meta="Ready for planning/design" tone="success" icon={Search} />
+                <StatCard label="Follow-Ups Due" value={loading ? '...' : stats.followUpsDue} meta="Due today or earlier" tone="danger" icon={CalendarClock} />
+                <StatCard label="Proposals Sent" value={loading ? '...' : stats.proposals} meta="Waiting on decision" tone="warning" icon={Save} />
+                <StatCard label="Won Projects" value={loading ? '...' : stats.won} meta="Closed opportunities" tone="success" icon={Users} />
+                <StatCard label="Pipeline Value" value={loading ? '...' : formatCurrency(stats.value, { cents: true })} meta="Estimated open value" tone="neutral" icon={Users} />
+              </KpiStrip>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-[var(--ops-border)] bg-[var(--ops-surface-strong)] p-4 shadow-[var(--ops-shadow-soft)]">
+                <div className="flex flex-wrap gap-3">
+                  <OpsSelect value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-56">
+                    <option value="all">All pipeline stages</option>
+                    {awpPipelineStages.map((stage) => (
+                      <option key={stage.value} value={stage.value}>
+                        {stage.label}
+                      </option>
+                    ))}
+                  </OpsSelect>
+                  <OpsSelect value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="w-56">
+                    <option value="all">All sources</option>
+                    {awpLeadSourceOptions.map((source) => (
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
+                    ))}
+                  </OpsSelect>
+                </div>
+                <Link href="/leads?view=pipeline" className="text-sm font-semibold text-[var(--ops-brand)] hover:underline">
+                  Open Pipeline View
+                </Link>
+              </div>
+
+              {loading ? (
+                <EmptyState title="Loading leads" description="Fetching the AWP cabin lead list." />
+              ) : filteredLeads.length === 0 ? (
+                <EmptyState
+                  title="No leads found"
+                  description="Create a new cabin lead or adjust the current filters."
+                  action={
+                    <OpsButton type="button" variant="primary" onClick={() => setDraft(createEmptyDraft())}>
+                      <Plus className="h-4 w-4" />
+                      New Lead
+                    </OpsButton>
+                  }
+                />
+              ) : (
+                <DataTable
+              columns={[
+                { key: 'lead', label: 'Lead' },
+                { key: 'type', label: 'Lead Type' },
+                { key: 'source', label: 'Source' },
+                { key: 'stage', label: 'Stage' },
+                { key: 'site', label: 'Site Readiness' },
+                { key: 'budget', label: 'Budget / Value' },
+                { key: 'followup', label: 'Next Follow-Up' },
+              ]}
+              footer={`Showing ${filteredLeads.length} of ${leads.length} leads`}
+              minWidthClassName="min-w-[1180px]"
+            >
+              {filteredLeads.map((lead) => {
+                const context = contextForLead(lead);
+                return (
+                  <tr key={lead.id} className="transition-colors hover:bg-[var(--ops-surface-subtle)]">
+                    <td className="px-5 py-4">
+                      <button type="button" onClick={() => setDraft(draftFromLead(lead))} className="text-left">
+                        <p className="text-sm font-semibold text-[var(--ops-text)] hover:text-[var(--ops-brand)]">{lead.customer_name || 'Cabin lead'}</p>
+                        <p className="mt-1 text-xs text-[var(--ops-muted)]">{lead.customer_phone || lead.customer_email || '-'}</p>
+                      </button>
+                      <p className="mt-2 text-xs font-medium text-[var(--ops-muted)]">{lead.issue}</p>
+                    </td>
+                    <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">
+                      <p className="font-semibold text-[var(--ops-text)]">{String(context.leadType || '-')}</p>
+                      <p className="mt-1 text-xs">{String(context.intendedUse || '-')}</p>
+                    </td>
+                    <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{sourceFromSlug(lead.source)}</td>
+                    <td className="px-5 py-4">
+                      <OpsSelect value={lead.status} onChange={(event) => quickStatus(lead, event.target.value)} className="min-w-56">
+                        {awpPipelineStages.map((stage) => (
+                          <option key={stage.value} value={stage.value}>
+                            {stage.label}
+                          </option>
+                        ))}
+                      </OpsSelect>
+                    </td>
+                    <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge tone={context.ownsLand === 'Yes' ? 'success' : 'neutral'}>Land: {String(context.ownsLand || 'Unknown')}</StatusBadge>
+                        <StatusBadge tone={context.hasSiteAccess === 'Yes' ? 'success' : 'neutral'}>Access: {String(context.hasSiteAccess || 'Unknown')}</StatusBadge>
+                        <StatusBadge tone={context.utilitiesAvailable === 'Yes' ? 'success' : 'neutral'}>Utilities: {String(context.utilitiesAvailable || 'Unknown')}</StatusBadge>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">
+                      <p>{String(context.estimatedBudget || '-')}</p>
+                      <p className="mt-1 font-semibold text-[var(--ops-text)]">{formatCurrency(lead.estimated_value_cents || 0, { cents: true })}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="space-y-2">
+                        <StatusBadge tone={lead.next_follow_up_at ? 'warning' : 'neutral'}>{formatDateLabel(lead.next_follow_up_at)}</StatusBadge>
+                        <p className="text-xs text-[var(--ops-muted)]">Score {lead.ai_score || '-'}</p>
+                      </div>
                     </td>
                   </tr>
-                ) : filteredLeads.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      No leads found. {search && 'Try a different search.'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredLeads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            <Link href={`/leads/${lead.id}`} className="hover:text-blue-600 hover:underline">
-                              {lead.customer_name || 'View lead'}
-                            </Link>
-                          </p>
-                          <p className="text-xs text-gray-500 capitalize">{lead.source}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">{lead.issue || '-'}</td>
-                      <td className="px-6 py-4">
-                        <a href={`tel:${lead.customer_phone}`} className="text-blue-600 hover:underline">
-                          {lead.customer_phone || '-'}
-                        </a>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">{lead.location || '-'}</td>
-                      <td className="px-6 py-4">
-                        <select
-                          value={lead.status}
-                          onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                          className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
-                          style={{ 
-                            backgroundColor: lead.status === 'new' ? '#dbeafe' : lead.status === 'in_progress' ? '#fef3c7' : lead.status === 'completed' ? '#dcfce7' : '#f3f4f6',
-                            color: lead.status === 'new' ? '#1d4ed8' : lead.status === 'in_progress' ? '#b45309' : lead.status === 'completed' ? '#15803d' : '#6b7280'
-                          }}
-                        >
-                          <option value="new">New</option>
-                          <option value="qualified">Qualified</option>
-                          <option value="quoted">Quoted</option>
-                          <option value="booked">Booked</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="completed">Completed</option>
-                          <option value="lost">Lost</option>
-                        </select>
-                      </td>
-                      <td className="px-6 py-4 text-gray-500 text-sm">
-                        {formatDate(lead.created_at)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/estimates/new?lead_id=${encodeURIComponent(lead.id)}`}
-                            className="text-xs font-medium text-teal-700 hover:underline px-2 py-1 rounded-lg hover:bg-teal-50"
-                          >
-                            Estimate
-                          </Link>
-                          <button 
-                            onClick={() => handleDelete(lead.id)}
-                            className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+                </DataTable>
+              )}
+            </>
+          )}
         </div>
       </main>
 
-      {/* Add Lead Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Add New Lead</h2>
-              <button 
-                onClick={() => setShowAddModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
+      <DetailDrawer
+        open={Boolean(draft)}
+        onClose={() => setDraft(null)}
+        title={draft?.id ? 'Edit cabin lead' : 'New cabin lead'}
+        description="Capture cabin project fit, site readiness, timeline, follow-up, and AI summary details."
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            {draft?.id ? (
+              <OpsButton type="button" variant="danger" onClick={deleteLead} disabled={saving}>
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </OpsButton>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-3">
+              <OpsButton type="button" variant="secondary" onClick={() => setDraft(null)} disabled={saving}>
+                Cancel
+              </OpsButton>
+              <OpsButton type="button" variant="primary" onClick={saveLead} disabled={saving || !draft?.customer_name.trim() || !draft?.issue.trim()}>
+                {saving ? 'Saving...' : 'Save lead'}
+              </OpsButton>
             </div>
-            
-            <form onSubmit={handleCreateLead} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Issue/Service Needed *</label>
-                <input
-                  type="text"
-                  required
-                  value={newLead.issue}
-                  onChange={(e) => setNewLead({ ...newLead, issue: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Drain Cleaning, Water Heater, etc."
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  value={newLead.description}
-                  onChange={(e) => setNewLead({ ...newLead, description: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                  placeholder="Describe the issue..."
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Location *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newLead.location}
-                    onChange={(e) => setNewLead({ ...newLead, location: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Brooklyn, NY"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-                  <select
-                    value={newLead.source}
-                    onChange={(e) => setNewLead({ ...newLead, source: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {sources.map(source => (
-                      <option key={source} value={source}>{source.charAt(0).toUpperCase() + source.slice(1)}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-                >
-                  {submitting ? 'Creating...' : 'Create Lead'}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
+        }
+      >
+        {draft ? (
+          <div className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Full name</label>
+                <OpsInput value={draft.customer_name} onChange={(event) => setDraft({ ...draft, customer_name: event.target.value })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Company, if applicable</label>
+                <OpsInput value={draft.context.company} onChange={(event) => updateContext('company', event.target.value)} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Email</label>
+                <OpsInput type="email" value={draft.customer_email} onChange={(event) => setDraft({ ...draft, customer_email: event.target.value })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Phone</label>
+                <OpsInput value={draft.customer_phone} onChange={(event) => setDraft({ ...draft, customer_phone: event.target.value })} />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Cabin interest / project summary</label>
+              <OpsInput value={draft.issue} onChange={(event) => setDraft({ ...draft, issue: event.target.value })} placeholder="Second home near Lake Placid" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Notes</label>
+              <OpsTextarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={3} />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Lead type</label>
+                <OpsSelect value={draft.context.leadType} onChange={(event) => updateContext('leadType', event.target.value)}>
+                  {awpLeadTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Lead source</label>
+                <OpsSelect value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}>
+                  {awpLeadSourceOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Project location</label>
+                <OpsInput value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Intended use</label>
+                <OpsSelect value={draft.context.intendedUse} onChange={(event) => updateContext('intendedUse', event.target.value)}>
+                  {awpIntendedUseOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Owns land?</label>
+                <OpsSelect value={draft.context.ownsLand} onChange={(event) => updateContext('ownsLand', event.target.value)}>
+                  {awpYesNoUnknownOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Has site access?</label>
+                <OpsSelect value={draft.context.hasSiteAccess} onChange={(event) => updateContext('hasSiteAccess', event.target.value)}>
+                  {awpYesNoUnknownOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Utilities available?</label>
+                <OpsSelect value={draft.context.utilitiesAvailable} onChange={(event) => updateContext('utilitiesAvailable', event.target.value)}>
+                  {awpYesNoUnknownOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Estimated budget</label>
+                <OpsInput value={draft.context.estimatedBudget} onChange={(event) => updateContext('estimatedBudget', event.target.value)} placeholder="$250k-$350k" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Estimated pipeline value</label>
+                <OpsInput type="number" value={draft.estimated_value} onChange={(event) => setDraft({ ...draft, estimated_value: Number(event.target.value || 0) })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Timeline</label>
+                <OpsInput value={draft.context.timeline} onChange={(event) => updateContext('timeline', event.target.value)} placeholder="3-9 months" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Cabin interest level</label>
+                <OpsSelect value={draft.context.cabinInterestLevel} onChange={(event) => updateContext('cabinInterestLevel', event.target.value)}>
+                  {['Low', 'Medium', 'High', 'Very High'].map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Pipeline stage</label>
+                <OpsSelect value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
+                  {awpPipelineStages.map((stage) => (
+                    <option key={stage.value} value={stage.value}>
+                      {stage.label}
+                    </option>
+                  ))}
+                </OpsSelect>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Assigned owner</label>
+                <OpsInput value={draft.context.assignedOwner} onChange={(event) => updateContext('assignedOwner', event.target.value)} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Next follow-up date</label>
+                <OpsInput type="date" value={draft.next_follow_up_at} onChange={(event) => setDraft({ ...draft, next_follow_up_at: event.target.value })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Last contacted date</label>
+                <OpsInput type="date" value={draft.last_contacted_at} onChange={(event) => setDraft({ ...draft, last_contacted_at: event.target.value })} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Lead score</label>
+                <OpsInput type="number" min={1} max={100} value={draft.ai_score} onChange={(event) => setDraft({ ...draft, ai_score: Number(event.target.value || 0) })} />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">AI summary</label>
+                <OpsTextarea value={draft.context.aiSummary} onChange={(event) => updateContext('aiSummary', event.target.value)} rows={3} />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Internal qualification notes</label>
+              <OpsTextarea value={draft.context.notes} onChange={(event) => updateContext('notes', event.target.value)} rows={4} />
+            </div>
+          </div>
+        ) : null}
+      </DetailDrawer>
     </div>
   );
 }

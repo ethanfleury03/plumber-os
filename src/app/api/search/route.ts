@@ -11,65 +11,53 @@ export async function GET(request: Request) {
   if (q.length < 2) return NextResponse.json({ results: [] });
   const needle = `%${q}%`;
 
-  const [customers, jobs, invoices, estimates, leads] = await Promise.all([
+  const [leads, customers, estimates, growthRecords] = await Promise.all([
+    sql`
+      SELECT l.id, l.issue, l.source, c.name AS customer_name, c.phone AS phone
+      FROM leads l
+      LEFT JOIN customers c ON l.customer_id = c.id
+      WHERE l.company_id = ${auth.companyId}
+        AND (c.name LIKE ${needle} OR c.phone LIKE ${needle} OR l.issue LIKE ${needle} OR l.location LIKE ${needle})
+      ORDER BY l.created_at DESC
+      LIMIT 10
+    `,
     sql`
       SELECT id, name, phone, email FROM customers
       WHERE company_id = ${auth.companyId}
         AND (name LIKE ${needle} OR phone LIKE ${needle} OR email LIKE ${needle})
-      ORDER BY datetime(created_at) DESC
+      ORDER BY created_at DESC
       LIMIT 8
     `,
     sql`
-      SELECT id, description, status FROM jobs
+      SELECT id, estimate_number, title, status FROM estimates
       WHERE company_id = ${auth.companyId}
-        AND (description LIKE ${needle} OR service_type LIKE ${needle})
-      ORDER BY datetime(created_at) DESC
+        AND (estimate_number LIKE ${needle} OR title LIKE ${needle} OR description LIKE ${needle})
+      ORDER BY created_at DESC
       LIMIT 8
     `,
     sql`
-      SELECT id, invoice_number, status, total_cents FROM invoices
+      SELECT id, record_type, title, status FROM growth_records
       WHERE company_id = ${auth.companyId}
-        AND (invoice_number LIKE ${needle} OR notes LIKE ${needle})
-      ORDER BY datetime(created_at) DESC
-      LIMIT 8
-    `,
-    sql`
-      SELECT id, estimate_number, status FROM estimates
-      WHERE company_id = ${auth.companyId}
-        AND (estimate_number LIKE ${needle} OR summary LIKE ${needle})
-      ORDER BY datetime(created_at) DESC
-      LIMIT 8
-    `,
-    sql`
-      SELECT id, customer_name, issue_type, phone FROM leads
-      WHERE company_id = ${auth.companyId}
-        AND (customer_name LIKE ${needle} OR phone LIKE ${needle} OR issue_type LIKE ${needle})
-      ORDER BY datetime(created_at) DESC
-      LIMIT 8
+        AND (title LIKE ${needle} OR status LIKE ${needle} OR payload_json LIKE ${needle})
+      ORDER BY updated_at DESC
+      LIMIT 12
     `,
   ]);
 
   const results = [
+    ...leads.map((r: Record<string, unknown>) => ({
+      type: 'lead',
+      id: String(r.id),
+      title: String(r.customer_name || 'Lead'),
+      subtitle: [r.issue, r.phone].filter(Boolean).join(' • '),
+      href: `/leads/${r.id}`,
+    })),
     ...customers.map((r: Record<string, unknown>) => ({
       type: 'customer',
       id: String(r.id),
       title: String(r.name || ''),
       subtitle: [r.phone, r.email].filter(Boolean).join(' • '),
       href: `/customers/${r.id}`,
-    })),
-    ...jobs.map((r: Record<string, unknown>) => ({
-      type: 'job',
-      id: String(r.id),
-      title: String(r.description || 'Job'),
-      subtitle: String(r.status || ''),
-      href: `/jobs/${r.id}`,
-    })),
-    ...invoices.map((r: Record<string, unknown>) => ({
-      type: 'invoice',
-      id: String(r.id),
-      title: `Invoice ${r.invoice_number}`,
-      subtitle: `${r.status} — $${((Number(r.total_cents) || 0) / 100).toFixed(2)}`,
-      href: `/invoices/${r.id}`,
     })),
     ...estimates.map((r: Record<string, unknown>) => ({
       type: 'estimate',
@@ -78,14 +66,24 @@ export async function GET(request: Request) {
       subtitle: String(r.status || ''),
       href: `/estimates/${r.id}`,
     })),
-    ...leads.map((r: Record<string, unknown>) => ({
-      type: 'lead',
+    ...growthRecords.map((r: Record<string, unknown>) => ({
+      type: 'growth',
       id: String(r.id),
-      title: String(r.customer_name || 'Lead'),
-      subtitle: [r.issue_type, r.phone].filter(Boolean).join(' • '),
-      href: `/leads/${r.id}`,
+      title: String(r.title || 'Growth record'),
+      subtitle: [r.record_type, r.status].filter(Boolean).join(' • '),
+      href: growthRecordHref(String(r.record_type || '')),
     })),
   ];
 
   return NextResponse.json({ results });
+}
+
+function growthRecordHref(recordType: string) {
+  if (recordType === 'campaign') return '/outreach?tab=campaigns';
+  if (recordType === 'lead_list') return '/outreach?tab=lists';
+  if (recordType === 'asset') return '/marketing?tab=assets';
+  if (recordType === 'seo_task') return '/marketing?tab=seo';
+  if (recordType === 'project') return '/marketing?tab=projects';
+  if (recordType === 'ai_prompt_template') return '/ai-assistant';
+  return '/app';
 }

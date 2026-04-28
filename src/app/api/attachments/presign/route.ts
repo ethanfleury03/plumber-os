@@ -11,6 +11,7 @@ const ALLOWED_ENTITY_TYPES = new Set([
   'lead',
   'customer',
   'signature',
+  'knowledge_item',
 ]);
 
 export async function POST(request: Request) {

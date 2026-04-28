@@ -17,9 +17,9 @@ const appMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PlumberOS - Run your plumbing business on autopilot",
+  title: "AWP Growth Portal",
   description:
-    "PlumberOS is the AI-first operating system for plumbing companies. Capture every call, dispatch the right tech, send estimates, collect payment, and keep customers happy — all from one place.",
+    "AWP Growth Portal helps Adirondack White Pine Cabins organize cabin leads, partner outreach, marketing assets, website growth, and reporting.",
   metadataBase: new URL(getSiteUrl()),
   alternates: {
     canonical: "/",
@@ -27,24 +27,24 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "/",
-    title: "PlumberOS - Run your plumbing business on autopilot",
+    title: "AWP Growth Portal",
     description:
-      "Capture every call, dispatch the right tech, send estimates, collect payment, and keep customers happy — all from one place.",
-    siteName: "PlumberOS",
+      "Organize cabin leads, partner outreach, marketing assets, website growth, and reporting.",
+    siteName: "AWP Growth Portal",
     images: [
       {
         url: absoluteUrl("/opengraph-image"),
         width: 1200,
         height: 630,
-        alt: "PlumberOS",
+        alt: "AWP Growth Portal",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PlumberOS - Run your plumbing business on autopilot",
+    title: "AWP Growth Portal",
     description:
-      "Capture every call, dispatch the right tech, send estimates, collect payment, and keep customers happy — all from one place.",
+      "Organize cabin leads, partner outreach, marketing assets, website growth, and reporting.",
     images: [absoluteUrl("/twitter-image")],
   },
 };

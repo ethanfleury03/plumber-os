@@ -1,6 +1,8 @@
 import { sql } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { requirePortalUser } from '@/lib/auth/tenant';
+import { ensureAwpDemoData } from '@/lib/awp/seed';
+import { sourceToSlug } from '@/lib/awp/config';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
@@ -22,6 +24,8 @@ export async function GET(request: Request) {
   const offset = (page - 1) * limit;
 
   try {
+    await ensureAwpDemoData(portal.companyId, portal.branchId);
+
     let query = sql`
       SELECT 
         l.*,
@@ -110,9 +114,10 @@ export async function POST(request: Request) {
 
       if (!customerId) {
         const newCustomer = await sql`
-          INSERT INTO customers (company_id, name, phone, email, address)
+          INSERT INTO customers (company_id, branch_id, name, phone, email, address)
           VALUES (
             ${companyId},
+            ${portal.branchId || null},
             ${body.customer_name || 'Unknown'},
             ${body.customer_phone || ''},
             ${body.customer_email || null},
@@ -134,17 +139,41 @@ export async function POST(request: Request) {
     }
 
     const result = await sql`
-      INSERT INTO leads (company_id, customer_id, plumber_id, source, status, priority, issue, description, location)
+      INSERT INTO leads (
+        company_id,
+        branch_id,
+        customer_id,
+        plumber_id,
+        source,
+        status,
+        priority,
+        issue,
+        description,
+        location,
+        ai_qualification,
+        ai_score,
+        lead_context_json,
+        next_follow_up_at,
+        last_contacted_at,
+        estimated_value_cents
+      )
       VALUES (
         ${companyId},
+        ${portal.branchId || null},
         ${customerId || null},
         ${body.plumber_id || null},
-        ${body.source || 'website'},
-        ${body.status || 'new'},
+        ${sourceToSlug(body.source || 'Website Form')},
+        ${body.status || 'new_lead'},
         ${body.priority || 3},
         ${body.issue},
         ${body.description || null},
-        ${body.location || null}
+        ${body.location || null},
+        ${body.ai_qualification || body.ai_summary || null},
+        ${body.ai_score ?? null},
+        ${body.lead_context_json || JSON.stringify(body.context || {})},
+        ${body.next_follow_up_at || null},
+        ${body.last_contacted_at || null},
+        ${body.estimated_value_cents ?? null}
       )
       RETURNING *
     `;
@@ -171,37 +200,65 @@ export async function PUT(request: Request) {
 
   try {
     const existing = await sql`
-      SELECT company_id FROM leads WHERE id = ${id} LIMIT 1
+      SELECT company_id, customer_id FROM leads WHERE id = ${id} LIMIT 1
     `;
     if (existing.length === 0 || String((existing[0] as Record<string, unknown>).company_id) !== portal.companyId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    if (updates.status !== undefined) {
-      const result = await sql`
-        UPDATE leads SET status = ${updates.status}, updated_at = datetime('now') 
-        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
-      `;
-      return NextResponse.json({ lead: result[0] });
+    let customerId = String((existing[0] as Record<string, unknown>).customer_id || '');
+    if (updates.customer_name || updates.customer_phone || updates.customer_email || updates.customer_address) {
+      if (customerId) {
+        await sql`
+          UPDATE customers
+          SET
+            name = COALESCE(${updates.customer_name ?? null}, name),
+            phone = COALESCE(${updates.customer_phone ?? null}, phone),
+            email = COALESCE(${updates.customer_email ?? null}, email),
+            address = COALESCE(${updates.customer_address ?? null}, address),
+            updated_at = datetime('now')
+          WHERE id = ${customerId} AND company_id = ${portal.companyId}
+        `;
+      } else {
+        const customer = await sql`
+          INSERT INTO customers (company_id, branch_id, name, phone, email, address)
+          VALUES (
+            ${portal.companyId},
+            ${portal.branchId || null},
+            ${updates.customer_name || 'Unknown'},
+            ${updates.customer_phone || ''},
+            ${updates.customer_email || null},
+            ${updates.customer_address || null}
+          )
+          RETURNING id
+        `;
+        customerId = String(customer[0].id);
+      }
     }
 
-    if (updates.location !== undefined) {
-      const result = await sql`
-        UPDATE leads SET location = ${updates.location}, updated_at = datetime('now') 
-        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
-      `;
-      return NextResponse.json({ lead: result[0] });
-    }
+    const result = await sql`
+      UPDATE leads
+      SET
+        customer_id = COALESCE(${customerId || null}, customer_id),
+        plumber_id = COALESCE(${updates.plumber_id ?? null}, plumber_id),
+        source = COALESCE(${updates.source !== undefined ? sourceToSlug(updates.source) : null}, source),
+        status = COALESCE(${updates.status ?? null}, status),
+        priority = COALESCE(${updates.priority ?? null}, priority),
+        issue = COALESCE(${updates.issue ?? null}, issue),
+        description = COALESCE(${updates.description ?? null}, description),
+        location = COALESCE(${updates.location ?? null}, location),
+        ai_qualification = COALESCE(${updates.ai_qualification ?? updates.ai_summary ?? null}, ai_qualification),
+        ai_score = COALESCE(${updates.ai_score ?? null}, ai_score),
+        lead_context_json = COALESCE(${updates.lead_context_json || (updates.context ? JSON.stringify(updates.context) : null)}, lead_context_json),
+        next_follow_up_at = COALESCE(${updates.next_follow_up_at ?? null}, next_follow_up_at),
+        last_contacted_at = COALESCE(${updates.last_contacted_at ?? null}, last_contacted_at),
+        estimated_value_cents = COALESCE(${updates.estimated_value_cents ?? null}, estimated_value_cents),
+        updated_at = datetime('now')
+      WHERE id = ${id} AND company_id = ${portal.companyId}
+      RETURNING *
+    `;
 
-    if (updates.issue !== undefined) {
-      const result = await sql`
-        UPDATE leads SET issue = ${updates.issue}, updated_at = datetime('now') 
-        WHERE id = ${id} AND company_id = ${portal.companyId} RETURNING *
-      `;
-      return NextResponse.json({ lead: result[0] });
-    }
-
-    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+    return NextResponse.json({ lead: result[0] });
   } catch (error: unknown) {
     console.error('Error updating lead:', error);
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });

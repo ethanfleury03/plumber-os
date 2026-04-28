@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 
@@ -22,11 +22,15 @@ function writeCookie(name: string, value: string) {
 }
 
 export function ConsentManager() {
-  const [consent, setConsent] = useState<ConsentState>(() => {
-    if (typeof document === 'undefined') return 'unknown';
-    const value = readCookie(COOKIE_KEY);
-    return value === 'accepted' || value === 'rejected' ? value : 'unknown';
-  });
+  const [consent, setConsent] = useState<ConsentState | null>(null);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const value = readCookie(COOKIE_KEY);
+      setConsent(value === 'accepted' || value === 'rejected' ? value : 'unknown');
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   function set(value: Exclude<ConsentState, 'unknown'>) {
     writeCookie(COOKIE_KEY, value);

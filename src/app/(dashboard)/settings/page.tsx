@@ -1,400 +1,203 @@
 'use client';
 
-import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { Bell, User, Building, CreditCard, Palette, Save, Loader2, Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  AppPageHeader,
+  ConsolePanel,
+  DataTable,
+  KpiStrip,
+  OpsButton,
+  OpsInput,
+  OpsTextarea,
+  StatCard,
+  StatusBadge,
+} from '@/components/ops/ui';
+import { KnowledgeBasePanel } from '@/components/awp/knowledge-base-panel';
+import { awpBusinessProfile } from '@/lib/awp/config';
+import { Building2, Check, KeyRound, Save, Settings, Sparkles, Wrench } from 'lucide-react';
 
-
-
-const settingsTabs = [
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'company', label: 'Company', icon: Building },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'billing', label: 'Billing', icon: CreditCard },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-];
+type BusinessProfileState = {
+  businessName: string;
+  shortName: string;
+  website: string;
+  address: string;
+  phone: string;
+  email: string;
+  businessType: string;
+  primaryRegion: string;
+  coreOffer: string;
+};
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('profile');
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [payInfo, setPayInfo] = useState<{
-    stripeSecretConfigured: boolean;
-    onlinePaymentsEnabled: boolean;
-  } | null>(null);
-  
-  // Form state
-  const [profile, setProfile] = useState({
-    name: 'Akshay K.',
-    email: 'akshay@plumberos.com',
-    phone: '(555) 123-4567',
-    role: 'Admin',
+  const [profile, setProfile] = useState<BusinessProfileState>({
+    businessName: awpBusinessProfile.businessName,
+    shortName: awpBusinessProfile.shortName,
+    website: awpBusinessProfile.website,
+    address: awpBusinessProfile.address,
+    phone: awpBusinessProfile.phone,
+    email: awpBusinessProfile.email,
+    businessType: awpBusinessProfile.businessType,
+    primaryRegion: awpBusinessProfile.primaryRegion,
+    coreOffer: awpBusinessProfile.coreOffer,
   });
 
-  const [company, setCompany] = useState({
-    name: 'Demo Plumbing Co.',
-    address: '123 Main St, Brooklyn, NY 11201',
-    phone: '(555) 987-6543',
-    timezone: 'America/New_York',
-  });
+  const differentiators = useMemo(() => awpBusinessProfile.differentiators.join('\n'), []);
+  const aiContext = useMemo(() => awpBusinessProfile.aiContext.join('\n'), []);
 
-  const [notifications, setNotifications] = useState({
-    emailLeads: true,
-    emailJobs: true,
-    emailInvoices: true,
-    pushNewLead: true,
-    pushJobAssigned: true,
-    dailyDigest: false,
-  });
-
-  const handleSave = async () => {
-    setSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setSaving(false);
+  function save() {
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  useEffect(() => {
-    fetch('/api/company/payment-settings')
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.settings) {
-          setPayInfo({
-            stripeSecretConfigured: Boolean(j.stripeSecretConfigured),
-            onlinePaymentsEnabled: Boolean(j.settings.online_payments_enabled),
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
+    window.setTimeout(() => setSaved(false), 1800);
+  }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 bg-gray-100">
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
-            <p className="text-gray-500 text-sm">Manage your account and preferences</p>
-          </div>
-          <button 
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
-          </button>
-        </header>
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--ops-bg)]">
+      <main className="min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6 xl:px-8">
+        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
+          <AppPageHeader
+            icon={Settings}
+            eyebrow="Settings / Business Profile"
+            title="AWP Business Profile"
+            description="Centralized profile used by the Growth Portal labels, AI context, templates, and demo reporting."
+            actions={
+              <OpsButton type="button" variant="primary" onClick={save}>
+                {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                {saved ? 'Saved locally' : 'Save View'}
+              </OpsButton>
+            }
+          />
 
-        <div className="flex-1 overflow-auto p-6">
-          <div className="flex gap-6 max-w-5xl mx-auto">
-            {/* Sidebar Tabs */}
-            <div className="w-48 flex-shrink-0">
-              <div className="bg-white rounded-lg border border-gray-200 p-2">
-                {settingsTabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      activeTab === tab.id 
-                        ? 'bg-blue-50 text-blue-700' 
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <tab.icon className="w-4 h-4" />
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+          <KpiStrip className="xl:grid-cols-4">
+            <StatCard label="Business" value={profile.shortName} meta={profile.businessType} tone="brand" icon={Building2} />
+            <StatCard label="Region" value="Adirondacks" meta={profile.primaryRegion} tone="success" icon={Sparkles} />
+            <StatCard label="AI Context" value={awpBusinessProfile.aiContext.length} meta="Reusable context anchors" tone="warning" icon={KeyRound} />
+            <StatCard label="Legacy Ops Tools" value="Hidden" meta="Available in code, not owner nav" tone="neutral" icon={Wrench} />
+          </KpiStrip>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="space-y-6">
+              <ConsolePanel title="Business Profile" description="This is the AWP-specific profile for this fork. Future clients should get their own config profile.">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {[
+                    ['businessName', 'Business name'],
+                    ['shortName', 'Short name'],
+                    ['website', 'Website'],
+                    ['phone', 'Phone'],
+                    ['email', 'Email'],
+                    ['businessType', 'Business type'],
+                    ['primaryRegion', 'Primary region'],
+                    ['coreOffer', 'Core offer'],
+                  ].map(([key, label]) => (
+                    <div key={key}>
+                      <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">{label}</label>
+                      <OpsInput
+                        value={profile[key as keyof typeof profile]}
+                        onChange={(event) => setProfile({ ...profile, [key]: event.target.value })}
+                      />
+                    </div>
+                  ))}
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Address</label>
+                    <OpsInput value={profile.address} onChange={(event) => setProfile({ ...profile, address: event.target.value })} />
+                  </div>
+                </div>
+              </ConsolePanel>
+
+              <ConsolePanel title="Differentiators and AI Guardrails" description="These inputs keep templates client-specific without hardcoding claims across the app.">
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">Key differentiators</label>
+                    <OpsTextarea value={differentiators} readOnly rows={9} />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-[var(--ops-text)]">AI assistant context</label>
+                    <OpsTextarea value={aiContext} readOnly rows={9} />
+                  </div>
+                </div>
+                <div className="mt-5 rounded-[22px] border border-[var(--ops-warning-soft-border)] bg-[var(--ops-warning-soft)] px-4 py-3 text-sm leading-6 text-[var(--ops-warning-ink)]">
+                  {awpBusinessProfile.aiGuardrail}
+                </div>
+              </ConsolePanel>
+
+              <KnowledgeBasePanel />
+
+              <ConsolePanel title="Reusable Architecture" description="AWP-specific defaults are centralized so future client forks can swap business config and seed data.">
+                <DataTable
+                  columns={[
+                    { key: 'area', label: 'Area' },
+                    { key: 'location', label: 'Source' },
+                    { key: 'purpose', label: 'Purpose' },
+                  ]}
+                  minWidthClassName="min-w-[760px]"
+                  className="border-0 shadow-none"
+                >
+                  {[
+                    ['Business profile, options, prompts', 'src/lib/awp/config.ts', 'One place for AWP labels, pipeline stages, lead options, module fields, defaults, and prompts.'],
+                    ['Demo bootstrap', 'src/lib/awp/seed.ts', 'Seeds AWP demo leads, stages, campaigns, lists, assets, SEO tasks, projects, and prompts without duplicates.'],
+                    ['Growth modules', 'growth_records table', 'Generic record storage for campaigns, lists, assets, SEO, projects, and AI templates.'],
+                    ['Lead qualification fields', 'leads.lead_context_json', 'Stores cabin-specific qualification data while preserving the reusable lead model.'],
+                  ].map(([area, location, purpose]) => (
+                    <tr key={area}>
+                      <td className="px-5 py-4 text-sm font-semibold text-[var(--ops-text)]">{area}</td>
+                      <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{location}</td>
+                      <td className="px-5 py-4 text-sm text-[var(--ops-muted)]">{purpose}</td>
+                    </tr>
+                  ))}
+                </DataTable>
+              </ConsolePanel>
             </div>
 
-            {/* Content */}
-            <div className="flex-1">
-              {activeTab === 'profile' && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile Settings</h2>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                        AK
-                      </div>
-                      <div>
-                        <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">Change photo</button>
-                        <p className="text-xs text-gray-500 mt-1">JPG, PNG or GIF. Max 2MB.</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                        <input 
-                          type="text" 
-                          value={profile.name}
-                          onChange={e => setProfile({...profile, name: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                        <input 
-                          type="text" 
-                          value={profile.role}
-                          onChange={e => setProfile({...profile, role: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                        <input 
-                          type="email" 
-                          value={profile.email}
-                          onChange={e => setProfile({...profile, email: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                        <input 
-                          type="tel" 
-                          value={profile.phone}
-                          onChange={e => setProfile({...profile, phone: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
-                      </div>
-                    </div>
-                  </div>
+            <div className="space-y-6 xl:sticky xl:top-6">
+              <ConsolePanel title="Business Contact" description="Default AWP contact details.">
+                <div className="space-y-3 text-sm leading-6 text-[var(--ops-muted)]">
+                  <p>
+                    <span className="font-semibold text-[var(--ops-text)]">Website:</span>{' '}
+                    <a href={profile.website} className="text-[var(--ops-brand)] hover:underline" target="_blank" rel="noreferrer">
+                      {profile.website}
+                    </a>
+                  </p>
+                  <p>
+                    <span className="font-semibold text-[var(--ops-text)]">Phone:</span> {profile.phone}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-[var(--ops-text)]">Email:</span> {profile.email}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-[var(--ops-text)]">Address:</span> {profile.address}
+                  </p>
                 </div>
-              )}
+              </ConsolePanel>
 
-              {activeTab === 'company' && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Company Settings</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                      <input 
-                        type="text" 
-                        value={company.name}
-                        onChange={e => setCompany({...company, name: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                      <input 
-                        type="text" 
-                        value={company.address}
-                        onChange={e => setCompany({...company, address: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                        <input 
-                          type="tel" 
-                          value={company.phone}
-                          onChange={e => setCompany({...company, phone: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-                        <select 
-                          value={company.timezone}
-                          onChange={e => setCompany({...company, timezone: e.target.value})}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        >
-                          <option value="America/New_York">Eastern Time (ET)</option>
-                          <option value="America/Chicago">Central Time (CT)</option>
-                          <option value="America/Denver">Mountain Time (MT)</option>
-                          <option value="America/Los_Angeles">Pacific Time (PT)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
+              <ConsolePanel title="Owner Portal Scope" description="The AWP portal is intentionally focused on growth work.">
+                <div className="space-y-3 text-sm leading-6 text-[var(--ops-muted)]">
+                  <p>
+                    Calls, receptionist, dispatch, jobs, map, calendar, team, and service catalog modules are hidden from normal owner navigation.
+                  </p>
+                  <p>
+                    They have not been deleted, so reusable CRM code remains available for a future client or a later AWP operations phase.
+                  </p>
                 </div>
-              )}
+              </ConsolePanel>
 
-              {activeTab === 'notifications' && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Notification Preferences</h2>
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-900 mb-3">Email Notifications</h3>
-                      <div className="space-y-3">
-                        {[
-                          { key: 'emailLeads', label: 'New leads assigned to me' },
-                          { key: 'emailJobs', label: 'Job status updates' },
-                          { key: 'emailInvoices', label: 'Invoice payments received' },
-                        ].map(item => (
-                          <label key={item.key} className="flex items-center gap-3 cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              checked={notifications[item.key as keyof typeof notifications]}
-                              onChange={e => setNotifications({...notifications, [item.key]: e.target.checked})}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-700">{item.label}</span>
-                          </label>
-                        ))}
+              <ConsolePanel title="Integration Notes" description="Environment-sensitive integrations remain unchanged.">
+                <div className="space-y-3">
+                  {[
+                    ['Clerk', 'Authentication and portal user context'],
+                    ['SQLite / Neon Postgres', 'Local development or production database'],
+                    ['Retell / Twilio', 'Legacy phone workflows hidden from this owner portal'],
+                    ['Stripe', 'Payments and billing flows'],
+                    ['R2', 'Attachment storage'],
+                  ].map(([name, purpose]) => (
+                    <div key={name} className="rounded-[20px] border border-[var(--ops-border)] bg-[var(--ops-surface-strong)] px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-semibold text-[var(--ops-text)]">{name}</p>
+                        <StatusBadge tone="neutral">Unchanged</StatusBadge>
                       </div>
+                      <p className="mt-1 text-xs text-[var(--ops-muted)]">{purpose}</p>
                     </div>
-                    <div className="border-t border-gray-200 pt-4">
-                      <h3 className="text-sm font-medium text-gray-900 mb-3">Push Notifications</h3>
-                      <div className="space-y-3">
-                        {[
-                          { key: 'pushNewLead', label: 'New lead assigned' },
-                          { key: 'pushJobAssigned', label: 'Job assigned to me' },
-                        ].map(item => (
-                          <label key={item.key} className="flex items-center gap-3 cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              checked={notifications[item.key as keyof typeof notifications]}
-                              onChange={e => setNotifications({...notifications, [item.key]: e.target.checked})}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-sm text-gray-700">{item.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="border-t border-gray-200 pt-4">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={notifications.dailyDigest}
-                          onChange={e => setNotifications({...notifications, dailyDigest: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700">Receive daily digest email</span>
-                      </label>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              )}
-
-              {activeTab === 'billing' && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing & Subscription</h2>
-                  <div className="space-y-4">
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800">
-                      <h3 className="font-medium text-gray-900 mb-2">Customer payments (Stripe)</h3>
-                      {payInfo ? (
-                        <ul className="list-disc pl-5 space-y-1 text-gray-700">
-                          <li>
-                            Stripe secret key:{' '}
-                            {payInfo.stripeSecretConfigured ? (
-                              <span className="text-green-700 font-medium">configured</span>
-                            ) : (
-                              <span className="text-amber-700 font-medium">not set (add STRIPE_SECRET_KEY)</span>
-                            )}
-                          </li>
-                          <li>
-                            Company online payments:{' '}
-                            {payInfo.onlinePaymentsEnabled ? 'enabled' : 'disabled'} (see Estimates → Defaults)
-                          </li>
-                        </ul>
-                      ) : (
-                        <p className="text-gray-600">Loading…</p>
-                      )}
-                      <p className="mt-3">
-                        <Link href="/estimates/settings" className="text-blue-600 hover:underline font-medium">
-                          Configure deposit & invoice collection →
-                        </Link>
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">
-                        Webhook: <code className="bg-gray-100 px-1 rounded">/api/stripe/webhook</code> · Set{' '}
-                        <code className="bg-gray-100 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> and{' '}
-                        <code className="bg-gray-100 px-1 rounded">APP_BASE_URL</code> on the server.
-                      </p>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold text-blue-900">Pro Plan</h3>
-                          <p className="text-sm text-blue-700">$49/month • Unlimited leads</p>
-                        </div>
-                        <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium">Active</span>
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-2">Payment Method</h3>
-                      <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
-                        <CreditCard className="w-5 h-5 text-gray-400" />
-                        <span className="text-sm text-gray-900">•••• 4242</span>
-                        <span className="text-xs text-gray-500">Expires 12/26</span>
-                        <button className="ml-auto text-sm text-blue-600 hover:text-blue-700">Update</button>
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-2">Billing History</h3>
-                      <div className="border border-gray-200 rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="text-left px-4 py-2 font-medium text-gray-600">Date</th>
-                              <th className="text-left px-4 py-2 font-medium text-gray-600">Amount</th>
-                              <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[
-                              { date: 'Jan 15, 2026', amount: '$49.00', status: 'Paid' },
-                              { date: 'Dec 15, 2025', amount: '$49.00', status: 'Paid' },
-                              { date: 'Nov 15, 2025', amount: '$49.00', status: 'Paid' },
-                            ].map((item, i) => (
-                              <tr key={i} className="border-t border-gray-200">
-                                <td className="px-4 py-2 text-gray-900">{item.date}</td>
-                                <td className="px-4 py-2 text-gray-900">{item.amount}</td>
-                                <td className="px-4 py-2"><span className="text-green-600">{item.status}</span></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'appearance' && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Appearance</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">Theme</h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        {['Light', 'Dark', 'System'].map(theme => (
-                          <button
-                            key={theme}
-                            className={`p-3 border rounded-lg text-sm font-medium ${
-                              theme === 'Light' 
-                                ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                                : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                            }`}
-                          >
-                            {theme}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">Accent Color</h3>
-                      <div className="flex gap-2">
-                        {['#3b82f6', '#8b5cf6', '#22c55e', '#f97316', '#ef4444'].map(color => (
-                          <button
-                            key={color}
-                            className={`w-8 h-8 rounded-full ${color === '#3b82f6' ? 'ring-2 ring-offset-2 ring-blue-500' : ''}`}
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              </ConsolePanel>
             </div>
           </div>
         </div>

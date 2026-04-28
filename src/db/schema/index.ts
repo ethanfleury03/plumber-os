@@ -8,3 +8,5 @@ export * from './payments';
 export * from './attachments';
 export * from './notifications';
 export * from './marketing';
+export * from './growth';
+export * from './ai';
