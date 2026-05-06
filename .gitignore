@@ -35,6 +35,7 @@ apps/marketing/data/*.sqlite-*
 apps/marketing/data/test-uploads/
 apps/marketing/uploads/blogs/*
 !apps/marketing/uploads/blogs/.gitkeep
+apps/portal/data/uploads/
 
 # TypeScript
 *.tsbuildinfo
