@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const { Pool } = require("@neondatabase/serverless");
+const sanitizeHtml = require("sanitize-html");
 const blogPosts = require("../data/blogPosts");
 const { clean, normalizeDate, slugify } = require("../lib/slugs");
 const { markdownToHtml } = require("../render/html");
@@ -333,12 +334,28 @@ function escapeRegExp(value) {
 }
 
 function sanitizeArticleHtml(html) {
-  return String(html || "")
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, "")
-    .replace(/\s+href\s*=\s*"javascript:[^"]*"/gi, ' href="#"')
-    .replace(/\s+href\s*=\s*'javascript:[^']*'/gi, " href='#'");
+  return sanitizeHtml(String(html || ""), {
+    allowedTags: ["h1", "h2", "h3", "p", "ul", "ol", "li", "strong", "a"],
+    allowedAttributes: {
+      a: ["href"],
+    },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowProtocolRelative: false,
+    transformTags: {
+      a(tagName, attribs) {
+        const href = String(attribs.href || "").trim();
+        if (
+          href.startsWith("/") ||
+          href.startsWith("#") ||
+          /^https?:\/\//i.test(href) ||
+          /^mailto:[^@]+@[^@]+$/i.test(href)
+        ) {
+          return { tagName, attribs: { href } };
+        }
+        return { tagName, attribs: {} };
+      },
+    },
+  });
 }
 
 module.exports = {

@@ -228,6 +228,54 @@ async function main() {
     throw new Error("Expected reader-facing SEO planning sections to be stripped.");
   }
 
+  const xss = await request("/api/blogs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TOKEN}`,
+    },
+    body: JSON.stringify({
+      title: "Unsafe Blog HTML Test",
+      slug: "unsafe-blog-html-test",
+      excerpt: "Sanitizer regression test.",
+      blog_html:
+        '<h2 onclick=alert(1)>Safe Heading</h2><p><strong>Safe bold</strong><a href="javascript:alert(1)" onclick="alert(1)">Bad link</a><a href="/#workflow-form">Safe internal</a><a href="#top">Safe anchor</a><a href="mailto:test@example.com">Safe mail</a></p><svg onload=alert(1)></svg><iframe src="https://example.com"></iframe><script>alert(1)</script><style>body{display:none}</style>',
+      publish_date: "2026-04-27",
+    }),
+  });
+
+  if (![200, 201].includes(xss.response.status) || !xss.body.ok) {
+    throw new Error(`Expected XSS sanitizer POST to succeed, got ${xss.response.status}: ${JSON.stringify(xss.body)}`);
+  }
+
+  const cleaned = xss.body.blog.blog_html;
+  const forbidden = [
+    "onclick",
+    "onload",
+    "javascript:",
+    "<svg",
+    "<iframe",
+    "<script",
+    "<style",
+  ];
+  for (const token of forbidden) {
+    if (cleaned.toLowerCase().includes(token)) {
+      throw new Error(`Expected sanitizer to remove ${token}, got ${cleaned}`);
+    }
+  }
+  for (const expected of [
+    "<h2>Safe Heading</h2>",
+    "<strong>Safe bold</strong>",
+    '<a>Bad link</a>',
+    '<a href="/#workflow-form">Safe internal</a>',
+    '<a href="#top">Safe anchor</a>',
+    '<a href="mailto:test@example.com">Safe mail</a>',
+  ]) {
+    if (!cleaned.includes(expected)) {
+      throw new Error(`Expected sanitized HTML to include ${expected}, got ${cleaned}`);
+    }
+  }
+
   const update = await request("/api/blogs", {
     method: "POST",
     headers: {
